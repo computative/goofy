@@ -1,0 +1,50 @@
+
+# coords2configs X
+# 
+# For hvert sett med koordinater lager den relative koordinater mht IJ
+# Den tar ikke med configs som er utenfor BondEnvelope
+# 
+# SENERE, vi må sjekke at det fungerer for cell som ikke er kvadratisk.
+# 
+# SENERE, VI BEHØVER OGSÅ EN TEST SOM SJEKKER AT BASISEN BLIR SENTRERT PÅ KORREKT STED.
+#
+
+# offsite_generator X
+# 
+# Den lager en funksjon som lager basiser. Transformerer basiselementene riktig?
+#  
+
+# offsite_generator_box
+# 
+# big box with large separation. Reason what the matrix elements should look like.
+#
+
+# design_matrix
+# 
+# For hver symmetritype og config evaluerer den en basis ved en konfigurasjon. 
+# Etterpå setter den de evaluerte verdiene i en matrise med ant basiselt langs 
+# 2-aksen, og de forskjellige (elementene av symmetritypen og config) langs
+# 1-aksen.
+# 
+
+# train
+# 
+# Fører IJ, R på en måte man skulle forvente inn I coords2configs. De returnerte
+# configs ser riktige ut. basis,L, L_count-arrayen har korrekt dimensjon og 
+# innhold?  
+# 
+# 
+#
+
+# predict
+# 
+# 
+#  
+# 
+#
+# test
+# 
+# 
+#  
+# 
+#
