@@ -1,8 +1,8 @@
 module goofy
 
-export coords2configs, offsite_generator, design_matrix, train, predict, test, AA, Ylm_complex2real
+export coords2configs, offsite_generator, design_matrix, train, predict, test, AA, Ylm_complex2real, parse_files
 
-using JSON, HDF5, JuLIP, Statistics, Plots, Printf, LinearAlgebra, InteractiveUtils, Random
+using JSON, HDF5, JuLIP, Statistics, Plots, Printf, LinearAlgebra, InteractiveUtils, Random, IterativeSolvers
 using StaticArrays, LowRankApprox, IterativeSolvers, Distributed, DistributedArrays, ACE
 import ACE.scaling, ACE.write_dict, ACE.read_dict
 using ACE: PolyTransform, SphericalMatrix, PIBasis, SymmetricBasis,
@@ -11,15 +11,111 @@ using ACE: PolyTransform, SphericalMatrix, PIBasis, SymmetricBasis,
            evaluate_d, get_spec, evaluate, PositionState, BondEnvelope, CylindricalBondEnvelope
 
 
+
+
+
+function parse_files(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
+
+   # import file
+   f = HDF5.h5open( path * "/" * id  * ".h5", "r")
+   matrices = [HDF5.read( f, string(i) ) for i in 0:(len-1)]
+   HDF5.close(f)
+
+   raw = JSON.parsefile(path * "/" * id * ".json")
+   m = length(raw); ns = [length(raw[string(i)]) for i in 0:(len-1) ]
+   l = length(raw["1"][1])
+   coords = [zeros(n,l) for n in ns]
+
+   # convert coords to 
+   for (ii,(key,value)) in enumerate(raw)
+       i = parse(Int64,key)
+       if i >= len
+           continue 
+       end
+       for (j, vec) in enumerate(value)
+           coords[i+1][j,:] = Float64.( vec )
+       end
+   end
+
+
+   # for hver index (0-99) må vi velge ut noe som er nærmere enn cutoff
+   # remember to pick some coordinates that have nonzero cutoff.
+   # this is a lazy method but avoids the boundaries of the material
+   N = 4; 
+   H::Vector{Matrix{ComplexF64}} = []
+   #idx = []
+   R::Vector{Matrix{Float64}} = Vector{Matrix{Float64}}(undef,0)
+
+   if IJ == Nothing
+       IJ::Vector{Tuple{Int64,Int64}} = []
+       for coord in coords
+           I::Int64 = 0; J::Int64 = 0
+           choice = [] # this will contain coordinates of Hamiltonian blocks
+           while length(choice) < vol # while I am yet to collect k suitable coordinates
+               I, J = randperm(size(coord)[1])[1:2] # I try distinct coords (that produces offsite blocks)
+               if LinearAlgebra.norm(coord[I,:] - coord[J,:]) < rcut # Only if atoms are close enough ...
+                   append!(choice, [(I,J)] ) # ... their indices are added to the array of chosen coordinates
+               end
+           end
+           for (I,J) in choice
+               append!(IJ,[(I,J)])
+               #append!(idx,[index])
+           end
+       end
+   end
+   for (K,(I,J)) in enumerate(IJ)
+       i = N*(I-1)+1
+       j = N*(J-1)+1
+       append!(H, [ matrices[K][i:(i+N-1), j:(j+N-1) ] ] ) # The hamiltonian-array is extended by our choices
+       append!(R, [ coords[K] ] ) # The hamiltonian-array is extended by our choices
+   end
+
+
+   
+   Z = [zeros(Int64, 1) for i in 1:length(R)]
+
+   for i in 1:length(R)
+       n = length(R[i][:,1]); 
+       Z[i] = Int64.(14*ones(n))
+   end
+   
+
+   # I assume that the cell does not change for each sample.
+   jsoncell = isfile(path * "/" * id * ".cell.json")
+   stdcell = isfile(path * "/" * id * ".cell")
+   cell = [ zeros(3,3) for i in 1:length(H) ]
+   
+   if jsoncell & stdcell
+       error("WHAT KIND OF CELL DO YOU WANT?")
+   elseif stdcell 
+       unitcell = eval(Meta.parse(read(path * "/" * id * ".cell", String)))
+       cell = [unitcell for i in 1:length(H)]
+   elseif jsoncell
+       raw = JSON.parsefile(path * "/" * id * "cell.json")
+       for (ii, K) in enumerate(idx)
+           value = raw[string(K-1)]
+           for (j, vec) in enumerate(value)
+               cell[ii][j,:] = Float64.( vec )
+           end
+       end
+   else 
+       error("NO CELL FOUND!")
+   end
+   return H, R, IJ, cell, Z
+end
+
+
 function coords2configs(coords, Z, envelope,  cell)
    IJ::Vector{Tuple{Int64, Int64}}, R::Vector{Matrix{Float64}} = coords
-   rcut::Float64 = envelope.r0cut
+   # -!- DET BLIR VIKTIG SJEKKE AT INGEN FLERE URPESISHETER Á LA rcut vs Rcut er tilstede i hello world jeg fikk fra liwei
+   r0cut::Float64 = envelope.r0cut; zcut::Float64 = envelope.zcut; rcut::Float64 = envelope.rcut
    configs = [] # this array will contain all the configurations (ACEConfig)
    for (i,(I,J)) in enumerate(IJ) # this loops runs over the coords of atoms that forms a bond
       # JuLIP can output rel. coords. It requires an atoms "object" and uses Potentials.neigsz
-      at = JuLIP.Atoms(; X = (R')[i], Z = Z, cell = cell, pbc = [true, true, true])
+      at = JuLIP.Atoms(; X = (R')[i], Z = Z[i], cell = cell[i], pbc = [true, true, true])
       # here I make a large system that is repeated according to pbc
-      neigh_I = JuLIP.Potentials.neigsz(JuLIP.neighbourlist(at, rcut), at, I)
+      Rcut = ((r0cut + rcut)^2 + zcut^2)^0.5
+      neigh_I = JuLIP.Potentials.neigsz(JuLIP.neighbourlist(at, Rcut), at, I)
       # the large system contains repeated images of the same vectors. The following selects the
       # index of the image of the vector R_J that is closest to R_I and calls it idx
       idx = findall(isequal(J),neigh_I[1])
@@ -57,18 +153,6 @@ function offsite_generator(env, order, maxdeg)
 end
 
 
-function AA(n)
-   if n == 1
-      return I 
-   elseif n == 3
-      return [ 0 1 0 ; 0 0 1 ; -1 0 0 ] #[ -1 -im 0 ; 0 0 1 ; -1 im 0 ]
-   else
-      #println("idx = " , n)
-      error("You are using the package incorrectly")
-   end
-end
-
-
 
 function Ylm_complex2real(m::Int64,n::Int64)
    L1 = (m-1)/2; L2 = (n-1)/2; 
@@ -98,50 +182,39 @@ end
 function design_matrix(basis, configs)
    # l is an integer equal to the highest dimension of the span of the summetric basis. 
    l::Int64 = length(configs); m::Int64, n::Int64 = size(ACE.evaluate(basis, configs[1])[1].val)
-   k::Int64 = length([ Matrix(item.val) for item in ACE.evaluate(basis, configs[1])] )
+   k::Int64 = length( [ Matrix(item.val) for item in ACE.evaluate(basis, configs[1]) ] )
    # memory allocation for the design matrix. Notice it has 3 dimensions (1 too many) to begin with.
    C = Ylm_complex2real(m,n)
    elts::Vector{Vector{Matrix{ComplexF64}}} = [[ zeros(m,n) for i in 1:k] for j in 1:l]
    for (i, config) in enumerate(configs) # for each configuration I will evaluate it under each SymmetricBasis
-      ##println(m , " " , n)
-      ##elts[i] = real([ C[1]' * AA(m) * Matrix(item.val) * AA(n)' * C[2] for item in ACE.evaluate(basis, config )  ])
-      ##elts[i] = real([ C[1]' * AA(m)' * Matrix(item.val) * AA(n) * C[2] for item in ACE.evaluate(basis, config )  ])
-      ##elts[i] = real([ C[1] * AA(m)' * Matrix(item.val) * AA(n)' * C[2] for item in ACE.evaluate(basis, config )  ])
-      ##elts[i] = real([ C[1] * AA(m) * Matrix(item.val) * AA(n)' * C[2]' for item in ACE.evaluate(basis, config )  ])
-      
-      #elts[i] = real([ C[1] * Matrix(item.val) * C[2]' for item in ACE.evaluate(basis, config )  ])
-      #elts[i] = real([ Matrix(item.val) for item in ACE.evaluate(basis, config )  ])
       elts[i] = real([ C[1] * Matrix(item.val) * C[2]' for item in ACE.evaluate(basis, config )  ])
    end
    elts = [ [ elts[i][j] for i in 1:l ] for j in 1:k ]
-   return reduce(hcat,[reduce(vcat,[reshape(elts[i][j],m*n) for j in 1:l]) for i in 1:k])
+   X = reduce(hcat,[reduce(vcat,[reshape(elts[i][j],m*n) for j in 1:l]) for i in 1:k])
+   return X
 end
 
-
+function hdfdump(array, path)
+   fid = h5open(path, "w")
+   fid["0"] = array
+   close(fid)
+end
 
 # this function takes all the samples of the system and parameters. It returns a model struct
 function train(system, ace_param, fit_param)
-   degree::Int64, order::Int64, rcut::Float64, renv::Float64, L_cfg::Dict{Int64, Int64} = ace_param #
-   H::Vector{Matrix{ComplexF64}}, lambda::Float64 = fit_param #
-   IJ, R::Vector{Matrix{Float64}}, Z::Array{Int64,1}, cell::Matrix{Float64} = system # jeg har sjekket de tre linjene at riktig ting pakkes inn og ut på riktig sted
+   degree::Int64, order::Int64, r0cut::Float64, rcut::Float64, L_cfg::Dict{Int64, Int64} = ace_param #
+   H::Vector{Matrix{ComplexF64}}, lambda::Float64, method::String = fit_param #
+   IJ, R::Vector{Matrix{Float64}}, Z::Vector{Vector{Int64}}, cell::Vector{Matrix{Float64}} = system # jeg har sjekket de tre linjene at riktig ting pakkes inn og ut på riktig sted
    # I can convert coords -> rel. coords -> configurations using the ingredients below
-   envelope::CylindricalBondEnvelope = ACE.CylindricalBondEnvelope(rcut, renv, renv)
-
+   envelope::CylindricalBondEnvelope = ACE.CylindricalBondEnvelope(r0cut, rcut, r0cut/2)
 
    # coords2configs : takes absolute coordinates and (1) makes relative coordinates and (2) output configs 
-
-
    configs = coords2configs([IJ, R], Z, envelope, cell) # rcut kan du få fra BondEnvelope 
    # order is the polynomial order, degree is d_max, and the Dict says how many S, P, D, ... 
    # orbitals that I want. Keys are integers: 0 refer to S orbital, 1 refer to P orbital and so on.
    # The values are an instruction of how many I want of each orbital-symmetry in the basis 
    # basegen is now a function that returns a basis when you give it a pair (L1,L2)
-
-   # outputs a function of two arguments (L1,L2)
-   # basegen(1,1)
-
    basegen = offsite_generator( envelope, order, degree )
-
 
    basize = sum(collect(values(L_cfg))) # basis size (in tight binding-sense): Total orbital count
    coef::Matrix{Vector{ComplexF64}} = [ [0.0] for _ in 1:basize, _ in 1:basize] # this will hold coeffs
@@ -153,7 +226,6 @@ function train(system, ace_param, fit_param)
    a::Int64 = 1; A::Int64 = 1
 
    # these are loops over all L1,L2 and over repeated orbital types
-
    for L1 in L, _ in 1:L_cfg[L1]
       m::Int64 = 0; n::Int64 = 0
       b::Int64 = 1; B::Int64 = 1
@@ -164,18 +236,21 @@ function train(system, ace_param, fit_param)
          for (c, block) in enumerate(H)
             Y[  ( (c-1)*m*n +1 ): ( c*m*n ) ] = reshape(block[A:(A+m-1), B:(B+n-1)], m*n )
          end
-
          # this makes a design matrix ( symmetric basis, vector of configs) -> Regular matrix with samples 
          #                                                                          along axis 1 and basis along axis 2 
-
-         X = design_matrix(basis[a,b], configs) # make design-matrices by evaluating the basis at the configs
-         
-         # linear regression stuff
-         Xt = transpose(X) # I will need the regularization parameter and X transpose
-
-         # condition of X vs Xt
-
-         coef[a,b] = vec( (Xt * X + lambda * I) \ (Xt * Y) )  # these are the coefficients 
+         X = (design_matrix(basis[a,b], configs)) # make design-matrices by evaluating the basis at the configs
+         Xt = X' # I will need the regularization parameter and X transpose
+         if lowercase(method) == "qr"
+            QR = qr(X)
+            coef[a,b] = ( inv(QR.R) *  QR.Q' ) * Y # these are the coefficients 
+         elseif lowercase(method) == "lsqr"
+            coef[a,b] = lsqr(real(X), real(Y), damp=lambda)  # these are the coefficients 
+         else
+            coef[a,b] = vec( (Xt * X + lambda * I) \ (Xt * (Y)) )  # these are the coefficients 
+         end
+         #if minimum(log10.(abs.(coef[a,b]))) < log10(cond(X)) - 16
+         #   println( "Warning: Condition number of design_matrix is ", cond(X) )
+         #end
          fitted[a,b] = X*coef[a,b] # these are the fitted values ...
          residuals[a,b] = Y - fitted[a,b] # ... and the residuals
          b += 1; B += n
@@ -184,9 +259,6 @@ function train(system, ace_param, fit_param)
    end
    return coef, fitted, residuals, basis, configs
 end
-
-
-
 
 function predict(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, configs)
    m::Int64 , n::Int64 = size(basis) # antall symmetrityper. I vårt tilfelle 2x2 
@@ -202,11 +274,6 @@ function predict(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 
          C::Vector{Matrix{ComplexF64}} = Ylm_complex2real(v,w)
          res::Vector{Matrix{ComplexF64}} = [ zeros(ComplexF64, v,w) for i in 1:l ]
          for (c, config) in enumerate(configs) # her er det feil. a,b må være strl ikke L1,L2
-            ##D = real([ C[1]' * AA(v) * Matrix(item.val) * AA(w)' * C[2] for item in ACE.evaluate(basis[a,b], config )  ] )
-            ##D = real([ C[1]' * AA(v)' * Matrix(item.val) * AA(w) * C[2] for item in ACE.evaluate(basis[a,b], config )  ] )
-            ##D = real([ C[1] * AA(v) * Matrix(item.val) * AA(w)' * C[2]' for item in ACE.evaluate(basis[a,b], config )  ] )
-            
-            #D = real([ Matrix(item.val) for item in ACE.evaluate(basis[a,b], config )  ] )
             D = real([ C[1] * Matrix(item.val) * C[2]' for item in ACE.evaluate(basis[a,b], config )  ] )
             res[c] = sum([ D[i] * coef[a,b][i] for i in 1:length(coef[a,b]) ])
          end
@@ -218,27 +285,29 @@ function predict(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 
    return [ [Hpredict[a,b,c]  for b in 1:k , c in 1:k] for a in 1:l ]
 end
 
-
-
-function test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, configs, H)
+function test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, configs, H, method, eps::Float64=1e-15)
    Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs)
-   E::Vector{Matrix{ComplexF64}} = (H - Hpredict)   
-   m::Int64 , n::Int64 = size(basis); 
-   rmse::Matrix{Float64} = zeros(m, n)
-   #e::Matrix{Vector{ComplexF64}}=[zeros(ComplexF64,length(E)) for i in 1:size(basis)[1], j in 1:size(basis)[2]]
+   E::Vector{Matrix{ComplexF64}} = [ zeros(size(H[i])) for i in 1:length(H)]
+   if method == "rmse"
+      E = ( H - Hpredict )
+   elseif method == "gabor"
+      E = [ ( Hpredict[i] ./ ( H[i] .+ eps ) ) .- 1 for i in 1:length(H) ]
+      #println([  H[i]  for i in 1:length(H) ])
+   end
+   m::Int64 , n::Int64 = size(basis)
+   statistic::Matrix{Float64} = zeros(m, n)
    I::Int64 = 1; v::Int64 = 1; w::Int64 = 1
    for i in 1:m
       J::Int64 = 1
       for j in 1:n
          v , w = size( ACE.evaluate(basis[i,j], configs[1])[1].val )
          e = [ err[I:(I+v-1),J:(J+w-1)] for err in E]
-         rmse[i,j] = norm(e)*( length(e)*v*w)^-0.5
+         statistic[i,j] = norm(e)*( length(e)*v*w)^-0.5
          J += w
       end
       I += v
    end
-   return rmse
+   return statistic
 end
 
 end
-
