@@ -11,9 +11,6 @@ using ACE: PolyTransform, SphericalMatrix, PIBasis, SymmetricBasis,
            evaluate_d, get_spec, evaluate, PositionState, BondEnvelope, CylindricalBondEnvelope
 
 
-
-
-
 function parse_files(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
 
    # import file
@@ -43,23 +40,25 @@ function parse_files(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
    # this is a lazy method but avoids the boundaries of the material
    N = 4; 
    H::Vector{Matrix{ComplexF64}} = []
-   #idx = []
+   idx = []
    R::Vector{Matrix{Float64}} = Vector{Matrix{Float64}}(undef,0)
 
    if IJ == Nothing
        IJ::Vector{Tuple{Int64,Int64}} = []
-       for coord in coords
+       for (i, coord) in enumerate(coords)
            I::Int64 = 0; J::Int64 = 0
            choice = [] # this will contain coordinates of Hamiltonian blocks
+           index = []
            while length(choice) < vol # while I am yet to collect k suitable coordinates
                I, J = randperm(size(coord)[1])[1:2] # I try distinct coords (that produces offsite blocks)
                if LinearAlgebra.norm(coord[I,:] - coord[J,:]) < rcut # Only if atoms are close enough ...
                    append!(choice, [(I,J)] ) # ... their indices are added to the array of chosen coordinates
+                   append!(index,[i])
                end
            end
            for (I,J) in choice
                append!(IJ,[(I,J)])
-               #append!(idx,[index])
+               append!(idx,index)
            end
        end
    end
@@ -89,10 +88,11 @@ function parse_files(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
        error("WHAT KIND OF CELL DO YOU WANT?")
    elseif stdcell 
        unitcell = eval(Meta.parse(read(path * "/" * id * ".cell", String)))
-       cell = [unitcell for i in 1:length(H)]
+       cell = [unitcell for _ in 1:length(H)]
    elseif jsoncell
-       raw = JSON.parsefile(path * "/" * id * "cell.json")
+       raw = JSON.parsefile(path * "/" * id * ".cell.json")
        for (ii, K) in enumerate(idx)
+           #println(ii, K)
            value = raw[string(K-1)]
            for (j, vec) in enumerate(value)
                cell[ii][j,:] = Float64.( vec )
@@ -224,7 +224,6 @@ function train(system, ace_param, fit_param)
    L = sort(collect(keys(L_cfg))) # the keys are the user-selected values for L1 and L2.
    basis::Array{SymmetricBasis, 2} = Array{SymmetricBasis}(undef, L_count, L_count)
    a::Int64 = 1; A::Int64 = 1
-
    # these are loops over all L1,L2 and over repeated orbital types
    for L1 in L, _ in 1:L_cfg[L1]
       m::Int64 = 0; n::Int64 = 0
@@ -238,15 +237,19 @@ function train(system, ace_param, fit_param)
          end
          # this makes a design matrix ( symmetric basis, vector of configs) -> Regular matrix with samples 
          #                                                                          along axis 1 and basis along axis 2 
-         X = (design_matrix(basis[a,b], configs)) # make design-matrices by evaluating the basis at the configs
+         X = design_matrix(basis[a,b], configs) # make design-matrices by evaluating the basis at the configs
          Xt = X' # I will need the regularization parameter and X transpose
+         
          if lowercase(method) == "qr"
             QR = qr(X)
             coef[a,b] = ( inv(QR.R) *  QR.Q' ) * Y # these are the coefficients 
          elseif lowercase(method) == "lsqr"
             coef[a,b] = lsqr(real(X), real(Y), damp=lambda)  # these are the coefficients 
          else
-            coef[a,b] = vec( (Xt * X + lambda * I) \ (Xt * (Y)) )  # these are the coefficients 
+            M = (Xt * X + lambda * I)
+            condM = cond(M)
+            #@show condM
+            coef[a,b] = vec( M \ (Xt * (Y)) )  # these are the coefficients 
          end
          #if minimum(log10.(abs.(coef[a,b]))) < log10(cond(X)) - 16
          #   println( "Warning: Condition number of design_matrix is ", cond(X) )
@@ -292,7 +295,6 @@ function test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2},
       E = ( H - Hpredict )
    elseif method == "gabor"
       E = [ ( Hpredict[i] ./ ( H[i] .+ eps ) ) .- 1 for i in 1:length(H) ]
-      #println([  H[i]  for i in 1:length(H) ])
    end
    m::Int64 , n::Int64 = size(basis)
    statistic::Matrix{Float64} = zeros(m, n)
