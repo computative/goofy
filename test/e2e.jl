@@ -30,12 +30,12 @@ end
 
 L_cfg = Dict(0=>1, 1=>1)  # r0cut rcut
 ace_param = [degree, order, rcut, renv, L_cfg]
-fit_param = [_H[1], lambda, "lsqr"]
+fit_param = [_H[1], lambda, "lsqr", false]
 system = [_IJ[1], _R[1], _Z[1], _unitcell[1]]
 c, _, __, basis, configs = train(system, ace_param, fit_param)
 
-rmse_train = test(c, basis, configs, _H[1], "rmse")
-rmse_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "rmse")
+rmse_train = test(c, basis, configs, _H[1], "rmse",0.0, false)
+rmse_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "rmse",0.0, false)
 
 atol = 1e-15
 rmse1 = (rmse_train - [0.0007602226784535119 0.00041656646394638315; 0.00041656646394638315 0.0011093674568751339])
@@ -43,8 +43,8 @@ if norm(rmse1) > atol @show rmse1 end
 rmse2 = (rmse_test - [0.02693920654887937 0.01437344905618222; 0.01437344905618222 0.005193592852618101])
 if norm(rmse2) > atol @show rmse2 end
 
-gabor_train = test(c, basis, configs, _H[1], "gabor", 0.)
-gabor_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "gabor",0.)
+gabor_train = test(c, basis, configs, _H[1], "gabor", 0.,false)
+gabor_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "gabor",0.,false)
 
 rmse3 = (gabor_train - [0.23279320324348582 0.4521235675126134; 0.4521235675126134 92.64020703168184])
 if norm(rmse3) > atol @show rmse3 end

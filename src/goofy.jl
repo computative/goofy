@@ -179,7 +179,7 @@ function Ylm_complex2real(m::Int64,n::Int64)
    return C
 end
 
-function design_matrix(basis, configs)
+function design_matrix(basis, configs, intercept=false)
    # l is an integer equal to the highest dimension of the span of the summetric basis. 
    l::Int64 = length(configs); m::Int64, n::Int64 = size(ACE.evaluate(basis, configs[1])[1].val)
    k::Int64 = length( [ Matrix(item.val) for item in ACE.evaluate(basis, configs[1]) ] )
@@ -191,6 +191,10 @@ function design_matrix(basis, configs)
    end
    elts = [ [ elts[i][j] for i in 1:l ] for j in 1:k ]
    X = reduce(hcat,[reduce(vcat,[reshape(elts[i][j],m*n) for j in 1:l]) for i in 1:k])
+   if intercept
+      _m, _n = size(X)
+      X = hcat(ones(_m), X)
+   end
    return X
 end
 
@@ -203,7 +207,7 @@ end
 # this function takes all the samples of the system and parameters. It returns a model struct
 function train(system, ace_param, fit_param)
    degree::Int64, order::Int64, r0cut::Float64, rcut::Float64, L_cfg::Dict{Int64, Int64} = ace_param #
-   H::Vector{Matrix{ComplexF64}}, lambda::Float64, method::String = fit_param #
+   H::Vector{Matrix{ComplexF64}}, lambda::Float64, method::String, intercept::Bool = fit_param #
    IJ, R::Vector{Matrix{Float64}}, Z::Vector{Vector{Int64}}, cell::Vector{Matrix{Float64}} = system # jeg har sjekket de tre linjene at riktig ting pakkes inn og ut på riktig sted
    # I can convert coords -> rel. coords -> configurations using the ingredients below
    envelope::CylindricalBondEnvelope = ACE.CylindricalBondEnvelope(r0cut, rcut, r0cut/2)
@@ -237,8 +241,10 @@ function train(system, ace_param, fit_param)
          end
          # this makes a design matrix ( symmetric basis, vector of configs) -> Regular matrix with samples 
          #                                                                          along axis 1 and basis along axis 2 
-         X = design_matrix(basis[a,b], configs) # make design-matrices by evaluating the basis at the configs
+         X = design_matrix(basis[a,b], configs, intercept) # make design-matrices by evaluating the basis at the configs
          Xt = X' # I will need the regularization parameter and X transpose
+         #@show cond(X)
+         #println(X)
          
          if lowercase(method) == "qr"
             QR = qr(X)
@@ -247,7 +253,6 @@ function train(system, ace_param, fit_param)
             coef[a,b] = lsqr(real(X), real(Y), damp=lambda)  # these are the coefficients 
          else
             M = (Xt * X + lambda * I)
-            condM = cond(M)
             #@show condM
             coef[a,b] = vec( M \ (Xt * (Y)) )  # these are the coefficients 
          end
@@ -263,7 +268,7 @@ function train(system, ace_param, fit_param)
    return coef, fitted, residuals, basis, configs
 end
 
-function predict(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, configs)
+function predict(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, configs, intercept=false)
    m::Int64 , n::Int64 = size(basis) # antall symmetrityper. I vårt tilfelle 2x2 
    K = [ size(ACE.evaluate(basis[v,w], configs[1])[1].val) for v in 1:m , w in 1:n ]
    k::Int64 = sum([ item[1] for item in K[:,1]]) # størrelse på hver H-matrise (e.g. 4x4)
@@ -278,7 +283,13 @@ function predict(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 
          res::Vector{Matrix{ComplexF64}} = [ zeros(ComplexF64, v,w) for i in 1:l ]
          for (c, config) in enumerate(configs) # her er det feil. a,b må være strl ikke L1,L2
             D = real([ C[1] * Matrix(item.val) * C[2]' for item in ACE.evaluate(basis[a,b], config )  ] )
-            res[c] = sum([ D[i] * coef[a,b][i] for i in 1:length(coef[a,b]) ])
+            if intercept
+               _m,_n = size(D[1])
+               D0 = ones(_m,_n)
+               res[c] = D0 * coef[a,b][1] + sum([ D[i-1] * coef[a,b][i] for i in 2:length(coef[a,b]) ])
+            else
+               res[c] = sum([ D[i] * coef[a,b][i] for i in 1:length(coef[a,b]) ])
+            end
          end
          Hpredict[:,A:(A+v-1),B:(B+w-1)] =  [res[r][s,t] for r in 1:l, s in 1:v, t in 1:w ]
          B += w
@@ -288,8 +299,8 @@ function predict(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 
    return [ [Hpredict[a,b,c]  for b in 1:k , c in 1:k] for a in 1:l ]
 end
 
-function test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, configs, H, method, eps::Float64=1e-15)
-   Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs)
+function test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, configs, H, method, eps::Float64=1e-15, intercept = false)
+   Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs, intercept)
    E::Vector{Matrix{ComplexF64}} = [ zeros(size(H[i])) for i in 1:length(H)]
    if method == "rmse"
       E = ( H - Hpredict )
