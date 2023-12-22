@@ -92,7 +92,6 @@ function parse_files(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
    elseif jsoncell
        raw = JSON.parsefile(path * "/" * id * ".cell.json")
        for (ii, K) in enumerate(idx)
-           #println(ii, K)
            value = raw[string(K-1)]
            for (j, vec) in enumerate(value)
                cell[ii][j,:] = Float64.( vec )
@@ -187,6 +186,7 @@ function design_matrix(basis, configs, intercept=false)
    C = Ylm_complex2real(m,n)
    elts::Vector{Vector{Matrix{ComplexF64}}} = [[ zeros(m,n) for i in 1:k] for j in 1:l]
    for (i, config) in enumerate(configs) # for each configuration I will evaluate it under each SymmetricBasis
+      #println(config)
       elts[i] = real([ C[1] * Matrix(item.val) * C[2]' for item in ACE.evaluate(basis, config )  ])
    end
    elts = [ [ elts[i][j] for i in 1:l ] for j in 1:k ]
@@ -242,16 +242,15 @@ function train(system, ace_param, fit_param)
          # this makes a design matrix ( symmetric basis, vector of configs) -> Regular matrix with samples 
          #                                                                          along axis 1 and basis along axis 2 
          X = design_matrix(basis[a,b], configs, intercept) # make design-matrices by evaluating the basis at the configs
-         Xt = X' # I will need the regularization parameter and X transpose
          #@show cond(X)
-         #println(X)
          
          if lowercase(method) == "qr"
             QR = qr(X)
             coef[a,b] = ( inv(QR.R) *  QR.Q' ) * Y # these are the coefficients 
          elseif lowercase(method) == "lsqr"
-            coef[a,b] = lsqr(real(X), real(Y), damp=lambda)  # these are the coefficients 
+            coef[a,b] = lsqr(X, Y, damp=lambda, atol = 1e-6, btol = 1e-6)  # these are the coefficients 
          else
+            Xt = X' # I will need the regularization parameter and X transpose
             M = (Xt * X + lambda * I)
             #@show condM
             coef[a,b] = vec( M \ (Xt * (Y)) )  # these are the coefficients 
@@ -259,6 +258,9 @@ function train(system, ace_param, fit_param)
          #if minimum(log10.(abs.(coef[a,b]))) < log10(cond(X)) - 16
          #   println( "Warning: Condition number of design_matrix is ", cond(X) )
          #end
+         #println(X)
+         #println(Y)
+         #println(real(coef[a,b]))
          fitted[a,b] = X*coef[a,b] # these are the fitted values ...
          residuals[a,b] = Y - fitted[a,b] # ... and the residuals
          b += 1; B += n
