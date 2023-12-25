@@ -18,7 +18,7 @@ order = parse(Int64, ARGS[4]); degree = parse(Int64, ARGS[5])
 lens = parse.(Int, split(chop(ARGS[6]; head=1, tail=1), ','))
 vol = parse(Int64, ARGS[7])
 intercept = false
-method = "none"
+method = "lsqr"
 
 # it is assumed that the order of the orbitals in the sub-blocks are the following:
 # first come all the s-orbitals, then all the p-orbitals, then the d-orbitals and so on
@@ -44,10 +44,10 @@ for len in lens
     rmse_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "rmse",0.0, intercept)
     println("rmse ", rmse_train, " ", "train ", lambda, " ",  order , " ",  degree , " " , len, " " , vol)
     println("rmse ", rmse_test, " ", "test ", lambda, " ",  order , " ",  degree , " " , len, " " , vol)
-    #gabor_train = test(c, basis, configs, _H[1], "gabor",0.0, intercept)
-    #gabor_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "gabor",0.0, intercept)
-    #println("gabo ", gabor_train, " ", "train ", lambda, " ",  order , " ",  degree , " " , len, " " , vol)
-    #println("gabo ", gabor_test, " ", "test ", lambda, " ",  order , " ",  degree , " " , len, " " , vol)
+    gabor_train = test(c, basis, configs, _H[1], "gabor",0.0, intercept)
+    gabor_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "gabor",0.0, intercept)
+    println("gabo ", gabor_train, " ", "train ", lambda, " ",  order , " ",  degree , " " , len, " " , vol)
+    println("gabo ", gabor_test, " ", "test ", lambda, " ",  order , " ",  degree , " " , len, " " , vol)
 end
 
 

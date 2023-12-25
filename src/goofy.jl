@@ -178,6 +178,8 @@ function Ylm_complex2real(m::Int64,n::Int64)
    return C
 end
 
+
+
 function design_matrix(basis, configs, intercept=false)
    # l is an integer equal to the highest dimension of the span of the summetric basis. 
    l::Int64 = length(configs); m::Int64, n::Int64 = size(ACE.evaluate(basis, configs[1])[1].val)
@@ -248,11 +250,15 @@ function train(system, ace_param, fit_param)
             QR = qr(X)
             coef[a,b] = ( inv(QR.R) *  QR.Q' ) * Y # these are the coefficients 
          elseif lowercase(method) == "lsqr"
-            coef[a,b] = lsqr(X, Y, damp=lambda, atol = 1e-6, btol = 1e-6)  # these are the coefficients 
+            coef[a,b] = lsqr(X, Y, damp=lambda)  # these are the coefficients 
          else
             Xt = X' # I will need the regularization parameter and X transpose
             M = (Xt * X + lambda * I)
-            #@show condM
+            condM = cond(M)
+            #@show cond(M)
+            if condM > 1e10
+               @show cond(M)
+            end
             coef[a,b] = vec( M \ (Xt * (Y)) )  # these are the coefficients 
          end
          #if minimum(log10.(abs.(coef[a,b]))) < log10(cond(X)) - 16

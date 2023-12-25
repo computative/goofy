@@ -38,19 +38,17 @@ rmse_train = test(c, basis, configs, _H[1], "rmse",0.0, false)
 rmse_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "rmse",0.0, false)
 
 atol = 1e-15
-rmse1 = (rmse_train - [0.0007602226784535119 0.00041656646394638315; 0.00041656646394638315 0.0011093674568751339])
+rmse1 = (rmse_train - [0.0007602226785111889 0.00041656646394651266; 0.00041656646394651266 0.0011093674568751492])
 if norm(rmse1) > atol @show rmse1 end
-rmse2 = (rmse_test - [0.02693920654887937 0.01437344905618222; 0.01437344905618222 0.005193592852618101])
+rmse2 = (rmse_test - [0.02693919867893994 0.01437344862680931; 0.01437344862680931 0.005193592835688177])
 if norm(rmse2) > atol @show rmse2 end
 
 gabor_train = test(c, basis, configs, _H[1], "gabor", 0.,false)
 gabor_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "gabor",0.,false)
 
-rmse3 = (gabor_train - [0.23279320324348582 0.4521235675126134; 0.4521235675126134 92.64020703168184])
+rmse3 = (gabor_train - [0.23278827039906394 0.45212357885746823; 0.45212357885746823 92.64020903812902])
 if norm(rmse3) > atol @show rmse3 end
-rmse4 = (gabor_test - [0.27736727421343976 0.7580246031560864; 0.7580246031560864 8.285331684658885])
+rmse4 = (gabor_test - [0.2773642842965894 0.7580229471196875; 0.7580229471196875 8.285331706490375])
 if norm(rmse4) > atol @show rmse4 end
 pass = (norm(rmse1) + norm(rmse2) + norm(rmse3) + norm(rmse4) < 4*atol)
 @show pass
-
-
