@@ -102,7 +102,7 @@ else
 end
 L_cfg = Dict(0=>1, 1=>1)  # r0cut rcut
 ace_param = [degree, order, rcut, renv, L_cfg]
-fit_param = [H, lambda, "none", false]
+fit_param = [H, lambda, inv_solver, false]
 system = [IJ, R, Z, cell]
 
 

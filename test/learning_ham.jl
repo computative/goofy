@@ -36,7 +36,6 @@ N::Int64 = div(n, nu)
 
 
 
-
 raw = JSON.parsefile(path * "/1.json")
 _R = transpose([ raw[ target_matrix_id ][i][j] for j in 1:3 , i in 1:length( raw[ target_matrix_id ] )  ])
 _Rp = [ _R for i in 1:(M*N)  ]
@@ -58,12 +57,15 @@ _cell = [cell[1] for i in 1:(M*N) if mask[i] == 1 ]
 _coords = [_IJ, _R]
 configs = coords2configs(_coords, _Z, CylindricalBondEnvelope(rcut, renv, rcut/2), _cell) 
 
-H, R, IJ, cell, Z = parse_files(path, string(1), 100,1)
+chosen = random_idx(path * "/data1.h5", 100, rcut)
+IJ = chosen[:,1]
+H, R, cell, Z = parse_files(path * "/data1.h5", IJ, chosen[:,2] )
+#H, R, IJ, cell, Z = parse_files(path, string(1), 100,1)
 for len in lens 
 
     L_cfg = Dict(0=>1, 1=>1)  # r0cut rcut
     ace_param = [degree, order, rcut, renv, L_cfg]
-    fit_param = [H[1:len], lambda, "none"]
+    fit_param = [H[1:len], lambda, inv_solver]
     system = [IJ[1:len], R[1:len], Z[1:len], cell[1:len]]
     coef, _, residuals, basis, _ = train(system, ace_param, fit_param)
 

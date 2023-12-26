@@ -1,6 +1,6 @@
 module goofy
 
-export coords2configs, offsite_generator, design_matrix, train, predict, test, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated
+export coords2configs, offsite_generator, design_matrix, train, predict, test, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated, depricated_test, qr_solver, lsqr_solver, inv_solver
 
 using JSON, HDF5, JuLIP, Statistics, Plots, Printf, LinearAlgebra, InteractiveUtils, Random, IterativeSolvers
 using StaticArrays, LowRankApprox, IterativeSolvers, Distributed, DistributedArrays, ACE
@@ -15,7 +15,7 @@ using ACE: PolyTransform, SphericalMatrix, PIBasis, SymmetricBasis,
 # n should divide the number of hamiltonians in the datafile
 # path : h5-file. n : number of observations, rcut : cutoff radius, 
 # natoms : number of atoms in system, chosen: a matrix whose columns are (IJ, index) 
-function random_idx(path::String, n::Int64, rcut::Float64)
+function random_idx(path::String, n::Int64, rcut::Real)
    infile::HDF5.File = HDF5.h5open(path)
    num_ham_in_datafile::Int64 = length(infile["ham"])
    num_obs_per_ham::Int64 = Int64(ceil(n/num_ham_in_datafile))
@@ -39,7 +39,6 @@ end
 # this function takes a vector of chosen indecies and the number of atoms in the system 
 # and returns finished parsed data 
 function parse_files(path, IJ, idx )
-
    infile = HDF5.h5open(path)
    num_atoms = size(infile["pos"]["1"])[2]
    block_size = Int64(round(size(infile["ham"]["1"][:,:])[1]/num_atoms))
@@ -58,99 +57,6 @@ function parse_files(path, IJ, idx )
 
    HDF5.close(infile)
    return ham, pos, cell, species
-end
-
-
-function parse_files_depricated(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
-
-   # import file
-   f = HDF5.h5open( path * "/" * string(id)  * ".h5", "r")
-   matrices = [HDF5.read( f, string(i) ) for i in 0:(len-1)]
-   HDF5.close(f)
-
-   raw = JSON.parsefile(path * "/" * string(id) * ".json")
-   m = length(raw); ns = [length(raw[string(i)]) for i in 0:(len-1) ]
-   l = length(raw["1"][1])
-   coords = [zeros(n,l) for n in ns]
-
-   # convert coords to 
-   for (ii,(key,value)) in enumerate(raw)
-       i = parse(Int64,key)
-       if i >= len # len er antallet matriser som skal hentes ut
-           continue 
-       end
-       for (j, vec) in enumerate(value)
-           coords[i+1][j,:] = Float64.( vec )
-       end
-   end
-
-
-   # for hver index (0-99) må vi velge ut noe som er nærmere enn cutoff
-   # remember to pick some coordinates that have nonzero cutoff.
-   # this is a lazy method but avoids the boundaries of the material
-   N = 4; 
-   H::Vector{Matrix{ComplexF64}} = []
-   idx = []
-   R::Vector{Matrix{Float64}} = Vector{Matrix{Float64}}(undef,0)
-
-   if IJ == Nothing
-       IJ::Vector{Tuple{Int64,Int64}} = []
-       for (i, coord) in enumerate(coords)
-           I::Int64 = 0; J::Int64 = 0
-           choice = [] # this will contain coordinates of Hamiltonian blocks
-           index = []
-           while length(choice) < vol # while I am yet to collect k suitable coordinates
-               I, J = randperm(size(coord)[1])[1:2] # I try distinct coords (that produces offsite blocks)
-               if LinearAlgebra.norm(coord[I,:] - coord[J,:]) < rcut # Only if atoms are close enough ...
-                   append!(choice, [(I,J)] ) # ... their indices are added to the array of chosen coordinates
-                   append!(index,[i])
-               end
-           end
-           for (I,J) in choice
-               append!(IJ,[(I,J)])
-               append!(idx,index)
-           end
-       end
-   end
-   for (K,(I,J)) in enumerate(IJ)
-       i = N*(I-1)+1
-       j = N*(J-1)+1
-       append!(H, [ matrices[K][i:(i+N-1), j:(j+N-1) ] ] ) # The hamiltonian-array is extended by our choices
-       append!(R, [ coords[K] ] ) # The hamiltonian-array is extended by our choices
-   end
-
-
-   
-   Z = [zeros(Int64, 1) for i in 1:length(R)]
-
-   for i in 1:length(R)
-       n = length(R[i][:,1]); 
-       Z[i] = Int64.(14*ones(n))
-   end
-   
-
-   # I assume that the cell does not change for each sample.
-   jsoncell = isfile(path * "/" * string(id) * ".cell.json")
-   stdcell = isfile(path * "/" * string(id) * ".cell")
-   cell = [ zeros(3,3) for i in 1:length(H) ]
-   
-   if jsoncell & stdcell
-       error("WHAT KIND OF CELL DO YOU WANT?")
-   elseif stdcell 
-       unitcell = eval(Meta.parse(read(path * "/" * string(id) * ".cell", String)))
-       cell = [unitcell for _ in 1:length(H)]
-   elseif jsoncell
-       raw = JSON.parsefile(path * "/" * string(id) * ".cell.json")
-       for (ii, K) in enumerate(idx)
-           value = raw[string(K-1)]
-           for (j, vec) in enumerate(value)
-               cell[ii][j,:] = Float64.( vec )
-           end
-       end
-   else 
-       error("NO CELL FOUND!")
-   end
-   return H, R, IJ, cell, Z
 end
 
 
@@ -250,10 +156,35 @@ function design_matrix(basis, configs, intercept=false)
    return X
 end
 
+
+
+# solvers accept a design matrix, response-vector and regularization-scalar 
+# (in that order) and returns a vector of numbers that equal the coefficents.
+function qr_solver(X::Matrix{T}, Y::Vector{T},lambda::Real) where T <: Number
+   m::Int64, n::Int64 = size(X)
+   U = vcat(X,lambda*I(n))
+   V = vcat(Y,zeros(n))
+   return qr(U) \ V
+end
+
+function lsqr_solver(X::Matrix{T}, Y::Vector{T},lambda::Real) where T <: Number
+   return lsqr(X,Y, damp=lambda)
+end
+
+function inv_solver(X::Matrix{T}, Y::Vector{T},lambda::Real) where T <: Number
+   Xt = X'
+   M::Matrix{Number} = (Xt * X + lambda * I)
+   @show cond(M)
+   return vec( M \ (Xt * Y) )
+end
+
+
+
 # this function takes all the samples of the system and parameters. It returns a model struct
 function train(system, ace_param, fit_param)
    degree::Int64, order::Int64, r0cut::Float64, rcut::Float64, L_cfg::Dict{Int64, Int64} = ace_param #
-   H::Vector{Matrix{ComplexF64}}, lambda::Float64, method::String, intercept::Bool = fit_param #
+   H::Vector{Matrix{ComplexF64}}, lambda::Float64, method, intercept::Bool = fit_param #
+   #H::Vector{Matrix{ComplexF64}}, lambda::Float64, method::String, intercept::Bool = fit_param #
    IJ, R::Vector{Matrix{Float64}}, Z::Vector{Vector{Int64}}, cell::Vector{Matrix{Float64}} = system # jeg har sjekket de tre linjene at riktig ting pakkes inn og ut på riktig sted
    # I can convert coords -> rel. coords -> configurations using the ingredients below
    envelope::CylindricalBondEnvelope = ACE.CylindricalBondEnvelope(r0cut, rcut, r0cut/2)
@@ -288,21 +219,7 @@ function train(system, ace_param, fit_param)
          # this makes a design matrix ( symmetric basis, vector of configs) -> Regular matrix with samples 
          #                                                                          along axis 1 and basis along axis 2 
          X = design_matrix(basis[a,b], configs, intercept) # make design-matrices by evaluating the basis at the configs
-         
-         if lowercase(method) == "qr"
-            QR = qr(X)
-            coef[a,b] = ( inv(QR.R) *  QR.Q' ) * Y # these are the coefficients 
-         elseif lowercase(method) == "lsqr"
-            coef[a,b] = lsqr(X, Y, damp=lambda)  # these are the coefficients 
-         else
-            Xt = X' # I will need the regularization parameter and X transpose
-            M = (Xt * X + lambda * I)
-            condM = cond(M)
-            if condM > 1e10
-               @show cond(M)
-            end
-            coef[a,b] = vec( M \ (Xt * (Y)) )  # these are the coefficients 
-         end
+         coef[a,b] = method(X, Y, lambda)
          fitted[a,b] = X*coef[a,b] # these are the fitted values ...
          residuals[a,b] = Y - fitted[a,b] # ... and the residuals
          b += 1; B += n
@@ -312,7 +229,8 @@ function train(system, ace_param, fit_param)
    return coef, fitted, residuals, basis, configs
 end
 
-function predict(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, configs, intercept=false)
+function predict(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, 
+                                       configs, intercept=false) where T <: Number
    m::Int64 , n::Int64 = size(basis) # antall symmetrityper. I vårt tilfelle 2x2 
    K = [ size(ACE.evaluate(basis[v,w], configs[1])[1].val) for v in 1:m , w in 1:n ]
    k::Int64 = sum([ item[1] for item in K[:,1]]) # størrelse på hver H-matrise (e.g. 4x4)
@@ -343,14 +261,16 @@ function predict(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 
    return [ [Hpredict[a,b,c]  for b in 1:k , c in 1:k] for a in 1:l ]
 end
 
-function test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, configs, H, method, eps::Float64=1e-15, intercept = false)
+
+
+
+
+
+function test(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, 
+                                 configs, H, method, intercept = false) where T <: Number
+
    Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs, intercept)
-   E::Vector{Matrix{ComplexF64}} = [ zeros(size(H[i])) for i in 1:length(H)]
-   if method == "rmse"
-      E = ( H - Hpredict )
-   elseif method == "gabor"
-      E = [ ( Hpredict[i] ./ ( H[i] .+ eps ) ) .- 1 for i in 1:length(H) ]
-   end
+   E::Vector{Matrix{ComplexF64}} = map(method, Hpredict, H)
    m::Int64 , n::Int64 = size(basis)
    statistic::Matrix{Float64} = zeros(m, n)
    I::Int64 = 1; v::Int64 = 1; w::Int64 = 1
@@ -366,5 +286,135 @@ function test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2},
    end
    return statistic
 end
+
+
+
+
+
+
+
+
+
+
+function depricated_test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, 
+   configs, H, method, eps::Float64=1e-15, intercept = false)
+Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs, intercept)
+E::Vector{Matrix{ComplexF64}} = [ zeros(size(H[i])) for i in 1:length(H)]
+if method == "rmse"
+E = ( H - Hpredict )
+elseif method == "gabor"
+E = [ ( Hpredict[i] ./ ( H[i] .+ eps ) ) .- 1 for i in 1:length(H) ]
+end
+m::Int64 , n::Int64 = size(basis)
+statistic::Matrix{Float64} = zeros(m, n)
+I::Int64 = 1; v::Int64 = 1; w::Int64 = 1
+for i in 1:m
+J::Int64 = 1
+for j in 1:n
+v , w = size( ACE.evaluate(basis[i,j], configs[1])[1].val )
+e = [ err[I:(I+v-1),J:(J+w-1)] for err in E]
+statistic[i,j] = norm(e)*( length(e)*v*w)^-0.5
+J += w
+end
+I += v
+end
+return statistic
+end
+
+
+
+function parse_files_depricated(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
+
+   # import file
+   f = HDF5.h5open( path * "/" * string(id)  * ".h5", "r")
+   matrices = [HDF5.read( f, string(i) ) for i in 0:(len-1)]
+   HDF5.close(f)
+
+   raw = JSON.parsefile(path * "/" * string(id) * ".json")
+   m = length(raw); ns = [length(raw[string(i)]) for i in 0:(len-1) ]
+   l = length(raw["1"][1])
+   coords = [zeros(n,l) for n in ns]
+
+   # convert coords to 
+   for (ii,(key,value)) in enumerate(raw)
+       i = parse(Int64,key)
+       if i >= len # len er antallet matriser som skal hentes ut
+           continue 
+       end
+       for (j, vec) in enumerate(value)
+           coords[i+1][j,:] = Float64.( vec )
+       end
+   end
+
+
+   # for hver index (0-99) må vi velge ut noe som er nærmere enn cutoff
+   # remember to pick some coordinates that have nonzero cutoff.
+   # this is a lazy method but avoids the boundaries of the material
+   N = 4; 
+   H::Vector{Matrix{ComplexF64}} = []
+   idx = []
+   R::Vector{Matrix{Float64}} = Vector{Matrix{Float64}}(undef,0)
+
+   if IJ == Nothing
+       IJ::Vector{Tuple{Int64,Int64}} = []
+       for (i, coord) in enumerate(coords)
+           I::Int64 = 0; J::Int64 = 0
+           choice = [] # this will contain coordinates of Hamiltonian blocks
+           index = []
+           while length(choice) < vol # while I am yet to collect k suitable coordinates
+               I, J = randperm(size(coord)[1])[1:2] # I try distinct coords (that produces offsite blocks)
+               if LinearAlgebra.norm(coord[I,:] - coord[J,:]) < rcut # Only if atoms are close enough ...
+                   append!(choice, [(I,J)] ) # ... their indices are added to the array of chosen coordinates
+                   append!(index,[i])
+               end
+           end
+           for (I,J) in choice
+               append!(IJ,[(I,J)])
+               append!(idx,index)
+           end
+       end
+   end
+   for (K,(I,J)) in enumerate(IJ)
+       i = N*(I-1)+1
+       j = N*(J-1)+1
+       append!(H, [ matrices[K][i:(i+N-1), j:(j+N-1) ] ] ) # The hamiltonian-array is extended by our choices
+       append!(R, [ coords[K] ] ) # The hamiltonian-array is extended by our choices
+   end
+
+
+   
+   Z = [zeros(Int64, 1) for i in 1:length(R)]
+
+   for i in 1:length(R)
+       n = length(R[i][:,1]); 
+       Z[i] = Int64.(14*ones(n))
+   end
+   
+
+   # I assume that the cell does not change for each sample.
+   jsoncell = isfile(path * "/" * string(id) * ".cell.json")
+   stdcell = isfile(path * "/" * string(id) * ".cell")
+   cell = [ zeros(3,3) for i in 1:length(H) ]
+   
+   if jsoncell & stdcell
+       error("WHAT KIND OF CELL DO YOU WANT?")
+   elseif stdcell 
+       unitcell = eval(Meta.parse(read(path * "/" * string(id) * ".cell", String)))
+       cell = [unitcell for _ in 1:length(H)]
+   elseif jsoncell
+       raw = JSON.parsefile(path * "/" * string(id) * ".cell.json")
+       for (ii, K) in enumerate(idx)
+           value = raw[string(K-1)]
+           for (j, vec) in enumerate(value)
+               cell[ii][j,:] = Float64.( vec )
+           end
+       end
+   else 
+       error("NO CELL FOUND!")
+   end
+   return H, R, IJ, cell, Z
+end
+
+
 
 end
