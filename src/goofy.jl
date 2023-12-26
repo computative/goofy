@@ -21,10 +21,11 @@ function random_idx(path::String, n::Int64, rcut::Float64)
    num_obs_per_ham::Int64 = Int64(ceil(n/num_ham_in_datafile))
    R::Matrix{Float64} = zeros(2,2)
    chosen = []
-   for (ham_id, R) in enumerate( infile["pos"] )
+   for ham_id in 1:num_ham_in_datafile
+      R = infile["pos"][string(ham_id)][:,:]
       while (length(chosen) < ham_id*num_obs_per_ham) & (length(chosen) < n)
          I, J = randperm(size(R)[2])[1:2]
-         if norm(R[:,I] - R[:,I]) < rcut # choose only atoms closer than rcut
+         if norm(R[:,J] - R[:,I]) < rcut # choose only atoms closer than rcut
             append!(chosen, [[(I,J), ham_id]] )
          end
       end
