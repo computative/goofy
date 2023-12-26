@@ -1,6 +1,6 @@
 module goofy
 
-export coords2configs, offsite_generator, design_matrix, train, predict, test, AA, Ylm_complex2real, parse_files
+export coords2configs, offsite_generator, design_matrix, train, predict, test, AA, Ylm_complex2real, parse_files, random_idx, new_parse_files
 
 using JSON, HDF5, JuLIP, Statistics, Plots, Printf, LinearAlgebra, InteractiveUtils, Random, IterativeSolvers
 using StaticArrays, LowRankApprox, IterativeSolvers, Distributed, DistributedArrays, ACE
@@ -9,6 +9,55 @@ using ACE: PolyTransform, SphericalMatrix, PIBasis, SymmetricBasis,
            SimpleSparseBasis, Utils.RnYlm_1pbasis,  
            Categorical1pBasis, filter, State, ACEConfig,
            evaluate_d, get_spec, evaluate, PositionState, BondEnvelope, CylindricalBondEnvelope
+
+
+
+# n should divide the number of hamiltonians in the datafile
+# path : h5-file. n : number of observations, rcut : cutoff radius, 
+# natoms : number of atoms in system, chosen: a matrix whose columns are (IJ, index) 
+function random_idx(path::String, n::Int64, rcut::Float64)
+   infile::HDF5.File = HDF5.h5open(path)
+   num_ham_in_datafile::Int64 = length(infile["ham"])
+   num_obs_per_ham::Int64 = Int64(ceil(n/num_ham_in_datafile))
+   R::Matrix{Float64} = zeros(2,2)
+   chosen = []
+   for (ham_id, R) in enumerate( infile["pos"] )
+      while length(chosen) < ham_id*num_obs_per_ham
+         I, J = randperm(size(R)[2])[1:2]
+         if norm(R[:,I] - R[:,I]) < rcut # choose only atoms closer than rcut
+            append!(chosen, [[(I,J), ham_id]] )
+         end
+      end
+   end
+   HDF5.close(infile)
+   # I convert a vector of vectors to matrix and return that matrix
+   return [ chosen[i][j] for i in eachindex(chosen), j in 1:2]
+end
+
+
+# this function takes a vector of chosen indecies and the number of atoms in the system 
+# and returns finished parsed data 
+function new_parse_files(path, IJ, idx )
+
+   infile = HDF5.h5open(path)
+   num_atoms = size(infile["pos"]["1"])[2]
+   block_size = Int64(round(size(infile["ham"]["1"][:,:])[1]/num_atoms))
+
+   slice1 = [ ((I-1)*block_size+1):(I*block_size) for (I,_) in IJ ]
+   slice2 = [ ((J-1)*block_size+1):(J*block_size) for (_,J) in IJ ]
+
+   # the hdf_select-function selects blocks of matrices with given idx  and group g
+   select_vec = (file, g, idx, slice) -> file[g][string(idx)][slice]
+   select_mat = (file, g, idx, sl1, sl2) -> transpose(file[g][string(idx)][:,:])[sl1, sl2]
+
+   ham = map( (i,j,k) -> select_mat(infile, "ham", k, i, j), slice1, slice2, idx )
+   pos   =   map( k -> select_mat(infile, "pos",   k,  :, :), idx )
+   cell   =  map( k -> select_mat(infile, "cell",  k,  :, :), idx )
+   species = map( k -> select_vec(infile, "species", k, :), idx )
+
+   HDF5.close(infile)
+   return ham, pos, cell, species
+end
 
 
 function parse_files(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
@@ -26,7 +75,7 @@ function parse_files(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
    # convert coords to 
    for (ii,(key,value)) in enumerate(raw)
        i = parse(Int64,key)
-       if i >= len
+       if i >= len # len er antallet matriser som skal hentes ut
            continue 
        end
        for (j, vec) in enumerate(value)
@@ -200,12 +249,6 @@ function design_matrix(basis, configs, intercept=false)
    return X
 end
 
-function hdfdump(array, path)
-   fid = h5open(path, "w")
-   fid["0"] = array
-   close(fid)
-end
-
 # this function takes all the samples of the system and parameters. It returns a model struct
 function train(system, ace_param, fit_param)
    degree::Int64, order::Int64, r0cut::Float64, rcut::Float64, L_cfg::Dict{Int64, Int64} = ace_param #
@@ -244,7 +287,6 @@ function train(system, ace_param, fit_param)
          # this makes a design matrix ( symmetric basis, vector of configs) -> Regular matrix with samples 
          #                                                                          along axis 1 and basis along axis 2 
          X = design_matrix(basis[a,b], configs, intercept) # make design-matrices by evaluating the basis at the configs
-         #@show cond(X)
          
          if lowercase(method) == "qr"
             QR = qr(X)
@@ -255,18 +297,13 @@ function train(system, ace_param, fit_param)
             Xt = X' # I will need the regularization parameter and X transpose
             M = (Xt * X + lambda * I)
             condM = cond(M)
-            #@show cond(M)
             if condM > 1e10
                @show cond(M)
             end
             coef[a,b] = vec( M \ (Xt * (Y)) )  # these are the coefficients 
          end
-         #if minimum(log10.(abs.(coef[a,b]))) < log10(cond(X)) - 16
-         #   println( "Warning: Condition number of design_matrix is ", cond(X) )
-         #end
-         #println(X)
-         #println(Y)
-         #println(real(coef[a,b]))
+
+         
          fitted[a,b] = X*coef[a,b] # these are the fitted values ...
          residuals[a,b] = Y - fitted[a,b] # ... and the residuals
          b += 1; B += n
