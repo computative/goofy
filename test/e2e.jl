@@ -1,3 +1,5 @@
+module shield
+
 using goofy, JSON, HDF5, LinearAlgebra, Random
 using ACE: BondEnvelope, CylindricalBondEnvelope
 
@@ -23,9 +25,10 @@ _IJ = [ [(40, 35), (24, 43), (40, 37), (18, 44), (45, 23), (39, 57), (19, 69), (
 
 
 _H = []; _R = []; _unitcell = []; _Z = []
+
 for (i, file_id) in enumerate(file_ids)
-    H, R, IJ, cell, Z = parse_files("/home/marius/Dokumenter/Skole/phd/goofy-e2e-data", file_id, len, 1, _IJ[i])
-    append!(_R,[R]); append!(_H,[H]); append!(_unitcell,[cell]); append!(_Z,[Z]) #; append!(_IJ,[IJ]); 
+    H, R, cell, Z = parse_files("/home/marius/Dokumenter/Skole/phd/goofy-e2e-data/e2e.h5", _IJ[i], Vector(1:20) )
+    append!(_R,[R]); append!(_H,[H]); append!(_unitcell,[cell]); append!(_Z,[Z])
 end 
 
 L_cfg = Dict(0=>1, 1=>1)  # r0cut rcut
@@ -37,18 +40,20 @@ c, _, __, basis, configs = train(system, ace_param, fit_param)
 rmse_train = test(c, basis, configs, _H[1], "rmse",0.0, false)
 rmse_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "rmse",0.0, false)
 
-atol = 1e-15
-rmse1 = (rmse_train - [0.0007602226785111889 0.00041656646394651266; 0.00041656646394651266 0.0011093674568751492])
+atol = 1e-16
+rmse1 = (rmse_train - [0.0007602226785111889 0.00041656646394651266; 0.00041656646394651266 0.0011093674568751575])
 if norm(rmse1) > atol @show rmse1 end
-rmse2 = (rmse_test - [0.02693919867893994 0.01437344862680931; 0.01437344862680931 0.005193592835688177])
+rmse2 = (rmse_test - [0.02693919867893994 0.01437344862680931; 0.01437344862680931 0.005193592832479996])
 if norm(rmse2) > atol @show rmse2 end
 
 gabor_train = test(c, basis, configs, _H[1], "gabor", 0.,false)
 gabor_test = test(c, basis, coords2configs([_IJ[2], _R[2]], _Z[2], CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2]), _H[2], "gabor",0.,false)
 
-rmse3 = (gabor_train - [0.23278827039906394 0.45212357885746823; 0.45212357885746823 92.64020903812902])
+rmse3 = (gabor_train - [0.23278827039906394 0.45212357885746823; 0.45212357885746823 92.6402035166913])
 if norm(rmse3) > atol @show rmse3 end
-rmse4 = (gabor_test - [0.2773642842965894 0.7580229471196875; 0.7580229471196875 8.285331706490375])
+rmse4 = (gabor_test - [0.2773642842965894 0.7580229471196875; 0.7580229471196875 8.28533180562432])
 if norm(rmse4) > atol @show rmse4 end
 pass = (norm(rmse1) + norm(rmse2) + norm(rmse3) + norm(rmse4) < 4*atol)
 @show pass
+
+end

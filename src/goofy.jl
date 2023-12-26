@@ -1,6 +1,6 @@
 module goofy
 
-export coords2configs, offsite_generator, design_matrix, train, predict, test, AA, Ylm_complex2real, parse_files, random_idx, new_parse_files
+export coords2configs, offsite_generator, design_matrix, train, predict, test, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated
 
 using JSON, HDF5, JuLIP, Statistics, Plots, Printf, LinearAlgebra, InteractiveUtils, Random, IterativeSolvers
 using StaticArrays, LowRankApprox, IterativeSolvers, Distributed, DistributedArrays, ACE
@@ -22,7 +22,7 @@ function random_idx(path::String, n::Int64, rcut::Float64)
    R::Matrix{Float64} = zeros(2,2)
    chosen = []
    for (ham_id, R) in enumerate( infile["pos"] )
-      while length(chosen) < ham_id*num_obs_per_ham
+      while (length(chosen) < ham_id*num_obs_per_ham) & (length(chosen) < n)
          I, J = randperm(size(R)[2])[1:2]
          if norm(R[:,I] - R[:,I]) < rcut # choose only atoms closer than rcut
             append!(chosen, [[(I,J), ham_id]] )
@@ -37,7 +37,7 @@ end
 
 # this function takes a vector of chosen indecies and the number of atoms in the system 
 # and returns finished parsed data 
-function new_parse_files(path, IJ, idx )
+function parse_files(path, IJ, idx )
 
    infile = HDF5.h5open(path)
    num_atoms = size(infile["pos"]["1"])[2]
@@ -60,14 +60,14 @@ function new_parse_files(path, IJ, idx )
 end
 
 
-function parse_files(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
+function parse_files_depricated(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
 
    # import file
-   f = HDF5.h5open( path * "/" * id  * ".h5", "r")
+   f = HDF5.h5open( path * "/" * string(id)  * ".h5", "r")
    matrices = [HDF5.read( f, string(i) ) for i in 0:(len-1)]
    HDF5.close(f)
 
-   raw = JSON.parsefile(path * "/" * id * ".json")
+   raw = JSON.parsefile(path * "/" * string(id) * ".json")
    m = length(raw); ns = [length(raw[string(i)]) for i in 0:(len-1) ]
    l = length(raw["1"][1])
    coords = [zeros(n,l) for n in ns]
@@ -129,17 +129,17 @@ function parse_files(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
    
 
    # I assume that the cell does not change for each sample.
-   jsoncell = isfile(path * "/" * id * ".cell.json")
-   stdcell = isfile(path * "/" * id * ".cell")
+   jsoncell = isfile(path * "/" * string(id) * ".cell.json")
+   stdcell = isfile(path * "/" * string(id) * ".cell")
    cell = [ zeros(3,3) for i in 1:length(H) ]
    
    if jsoncell & stdcell
        error("WHAT KIND OF CELL DO YOU WANT?")
    elseif stdcell 
-       unitcell = eval(Meta.parse(read(path * "/" * id * ".cell", String)))
+       unitcell = eval(Meta.parse(read(path * "/" * string(id) * ".cell", String)))
        cell = [unitcell for _ in 1:length(H)]
    elseif jsoncell
-       raw = JSON.parsefile(path * "/" * id * ".cell.json")
+       raw = JSON.parsefile(path * "/" * string(id) * ".cell.json")
        for (ii, K) in enumerate(idx)
            value = raw[string(K-1)]
            for (j, vec) in enumerate(value)
@@ -302,8 +302,6 @@ function train(system, ace_param, fit_param)
             end
             coef[a,b] = vec( M \ (Xt * (Y)) )  # these are the coefficients 
          end
-
-         
          fitted[a,b] = X*coef[a,b] # these are the fitted values ...
          residuals[a,b] = Y - fitted[a,b] # ... and the residuals
          b += 1; B += n
