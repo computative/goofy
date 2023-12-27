@@ -32,7 +32,7 @@ function random_idx(path::String, n::Int64, rcut::Real)
    end
    HDF5.close(infile)
    # I convert a vector of vectors to matrix and return that matrix
-   return [ chosen[i][j] for i in eachindex(chosen), j in 1:2]
+   return permutedims(reduce(hcat , chosen)) #[ chosen[i][j] for i in eachindex(chosen), j in 1:2]
 end
 
 
