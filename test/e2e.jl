@@ -35,13 +35,29 @@ system = [_IJ[1], _R[1], _Z[1], _unitcell[1]]
 c, _, __, basis, configs = train(system, ace_param, fit_param)
 
 
-absolute(X::Matrix{ComplexF64},Y::Matrix{ComplexF64}) = X - Y
-relative(X::Matrix{ComplexF64},Y::Matrix{ComplexF64}) = X ./ (Y .+ 0) .- 1
+
+function rmse(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}}) 
+    Z = map( (x,y) -> x .- y, X, Y )
+    N = length(Z)*length(first(Z))
+    return ( real(dot( Z, Z ))/N )^0.5
+end
+
+function rel(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}}) 
+    Z = map( (x,y) -> x./ (y .+ 0) .- 1, X, Y )
+    N = length(Z)*length(first(Z))
+    return ( real(dot( Z, Z ))/N )^0.5
+end
+
+
 
 env = CylindricalBondEnvelope(rcut, renv, rcut/2)
 test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], env, _unitcell[2])
-rmse_train = test(c, basis, configs, _H[1], absolute)
-rmse_test = test(c, basis, test_configs, _H[2], absolute)
+rmse_jig = test_setup(c, basis, rmse)
+rel_jig = test_setup(c, basis, rel)
+
+
+rmse_train = rmse_jig(_H[1], configs)
+rmse_test = rmse_jig(_H[2], test_configs)
 
 atol = 1e-16
 rmse1 = (rmse_train - [ 0.0007602226785111889 0.00041656646394651266; 
@@ -55,8 +71,10 @@ if norm(rmse2) > atol
     @show rmse2 
 end
 
-gabor_train = test(c, basis, configs, _H[1], relative)
-gabor_test = test(c, basis, test_configs, _H[2], relative)
+gabor_train = rel_jig(_H[1], configs)
+gabor_test = rel_jig(_H[2], test_configs)
+
+
 
 rmse3 = (gabor_train - [0.23278827039906394 0.45212357885746823; 
                         0.45212357885746823 92.6402035166913])

@@ -1,6 +1,6 @@
 module goofy
 
-export coords2configs, offsite_generator, design_matrix, train, predict, test, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated, depricated_test, qr_solver, lsqr_solver, inv_solver
+export coords2configs, offsite_generator, design_matrix, train, predict, test_setup, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated, depricated_test, qr_solver, lsqr_solver, inv_solver
 
 using JSON, HDF5, JuLIP, Statistics, Plots, Printf, LinearAlgebra, InteractiveUtils, Random, IterativeSolvers
 using StaticArrays, LowRankApprox, IterativeSolvers, Distributed, DistributedArrays, ACE
@@ -90,6 +90,26 @@ end
 
 
 
+function filter_offsite_be(bb,maxdeg,λ_n=.5,λ_l=.5)
+   if length(bb) == 0; return false; end
+   deg_n = ceil(Int64,maxdeg * λ_n)
+   deg_l = ceil(Int64,maxdeg * λ_l)
+   for b in bb
+      if (b.be == :env) && (b.n>deg_n || b.l>deg_l)
+         return false
+      end
+   end
+   return ( sum( b.be == :bond for b in bb ) == 1 )
+end
+
+
+function maxdeg2filterfun(maxdeg,λ_n=.5,λ_l=.5)
+   return bb -> filter_offsite_be(bb,maxdeg,λ_n,λ_l)
+end
+
+
+
+
 #  num_L1 and num_L2 are integers that say how many orbitals of each type is used
 function offsite_generator(env, order, maxdeg)
    Bsel = SimpleSparseBasis(order, maxdeg) # this sets the complexity of the basis
@@ -102,7 +122,7 @@ function offsite_generator(env, order, maxdeg)
    B1p = ACE.Categorical1pBasis([:bond, :env]; varsym = :be, idxsym=:be) * B1p_env # sum of eqn 20
    # that is all which is needed to get the SymmetricBasis (script-B in the paper)
    function basis(L1,L2)
-      return SymmetricBasis(SphericalMatrix(L1, L2; T = ComplexF64), B1p, Bsel)
+      return SymmetricBasis(SphericalMatrix(L1, L2; T = ComplexF64), B1p, Bsel)#; filterfun = maxdeg2filterfun(maxdeg,0.5,0.5))
    end
    return basis
 end
@@ -231,8 +251,9 @@ end
 
 function predict(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, 
                                        configs, intercept=false) where T <: Number
+
    m::Int64 , n::Int64 = size(basis) # antall symmetrityper. I vårt tilfelle 2x2 
-   K = [ size(ACE.evaluate(basis[v,w], configs[1])[1].val) for v in 1:m , w in 1:n ]
+   K = [ size( first( ACE.evaluate(basis[v,w], first(configs)) ).val ) for v in 1:m , w in 1:n ]
    k::Int64 = sum([ item[1] for item in K[:,1]]) # størrelse på hver H-matrise (e.g. 4x4)
    l::Int64 = length(configs); # ant obervasjoner
    Hpredict::Array{ComplexF64, 3} = zeros(l, k, k)
@@ -240,7 +261,7 @@ function predict(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2},
    for a in 1:m
       B::Int64 = 1
       for b in 1:n
-         v,w = size(ACE.evaluate(basis[a,b], configs[1])[1].val) # dimensjonene til blokken (i,j) 
+         v,w = size( first(ACE.evaluate(basis[a,b], first(configs))).val) # dimensjonene til blokken (i,j) 
          C::Vector{Matrix{ComplexF64}} = Ylm_complex2real(v,w)
          res::Vector{Matrix{ComplexF64}} = [ zeros(ComplexF64, v,w) for i in 1:l ]
          for (c, config) in enumerate(configs) # her er det feil. a,b må være strl ikke L1,L2
@@ -263,37 +284,33 @@ end
 
 
 
-
-
-
-function test(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, 
-                                 configs, H, method, intercept = false) where T <: Number
-
-   Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs, intercept)
-   E::Vector{Matrix{ComplexF64}} = map(method, Hpredict, H)
-   m::Int64 , n::Int64 = size(basis)
-   statistic::Matrix{Float64} = zeros(m, n)
-   I::Int64 = 1; v::Int64 = 1; w::Int64 = 1
-   for i in 1:m
-      J::Int64 = 1
-      for j in 1:n
-         v , w = size( ACE.evaluate(basis[i,j], configs[1])[1].val )
-         e = [ err[I:(I+v-1),J:(J+w-1)] for err in E]
-         statistic[i,j] = norm(e)*( length(e)*v*w)^-0.5
-         J += w
+function test_setup(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, 
+                                             method, intercept = false) where T <: Number
+   function test_jig( H, configs)
+      Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs, intercept)
+      #E::Vector{Matrix{ComplexF64}} = map(method, Hpredict, H)
+      m::Int64 , n::Int64 = size(basis)
+      statistic::Matrix{Any} = Matrix{Any}(undef,m,n)
+      I::Int64 = 1; v::Int64 = 1; w::Int64 = 1
+      for i in 1:m
+         J::Int64 = 1
+         for j in 1:n
+            v , w = size( first(ACE.evaluate(basis[i,j], first(configs))).val )
+            Hblock = [ h[I:(I+v-1),J:(J+w-1)] for h in H]
+            Hpblock = [ h[I:(I+v-1),J:(J+w-1)] for h in Hpredict]
+            statistic[i,j] = method(Hpblock, Hblock)
+            J += w
+         end
+         I += v
       end
-      I += v
+      return statistic
    end
-   return statistic
 end
 
 
 
 
-
-
-
-
+############
 
 
 function depricated_test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, 
@@ -320,6 +337,7 @@ I += v
 end
 return statistic
 end
+
 
 
 
