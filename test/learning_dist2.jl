@@ -1,4 +1,3 @@
-t0 = time()
 using goofy, JSON, HDF5, LinearAlgebra, Random
 using ACE: BondEnvelope, CylindricalBondEnvelope
 
@@ -42,10 +41,14 @@ for len in lens
     ace_param = [degree, order, rcut, renv, L_cfg]
     fit_param = [_H[1], lambda, lsqr_solver, intercept]
     system = [_IJ[1], _R[1], _Z[1], _unitcell[1]]
+
+
     c, fitted, residuals, basis, configs = train(system, ace_param, fit_param)
-
-
-    #retucer takes in vector of blocks where the statistic has been applied
+    
+    # testing
+    
+    env = CylindricalBondEnvelope(rcut, renv, rcut/2)
+    test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], env, _unitcell[2])
     
     function rms(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}}) 
         Z = map( (x,y) -> x .- y, X, Y )
@@ -66,19 +69,38 @@ for len in lens
     end
     
 
-    env = CylindricalBondEnvelope(rcut, renv, rcut/2)
-    test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], env, _unitcell[2])
+    res_jig = test_setup(c, basis, res)
 
-    rms_jig = test_setup(c, basis, rms)
-    rel_jig = test_setup(c, basis, rel)
-    
-    println("train")
-    println( JSON.json(Dict( "rmse" => vec(rms_jig( _H[1],configs)), "rel_err" => vec(rel_jig(_H[1],configs)) )))
-    
-    println("test")
-    println( JSON.json(Dict( "rmse" => vec(rms_jig(_H[2],test_configs)), "rel_err" => vec(rel_jig(_H[2],test_configs)) )))
-    
+    settings = Dict(
+        "length" => len, 
+        "degree" => degree,
+        "order" => order,
+        "rcut" => rcut,
+        "lambda" => lambda
+    )
+
+    symm = ["SS","PS","SP","PP"]
+    cfg = [configs, test_configs]
+
+    for (k, mode) in enumerate(["train", "test"])       
+        res_dict = Dict( symm .=> vec(res_jig(_H[k], cfg[k] ) ) )
+        sizes = map(j -> [ abs(_H[k][i][j]) for i in eachindex(_H[k]) ], collect(eachindex(basis)))
+        size_dict = Dict( symm .=> sizes )
+        
+        d = Dict(
+            "mode" => mode,
+            "size" => size_dict, 
+            "residuals" => res_dict, 
+            "separation" =>  [norm(first(cfg[k][i]).rr0 ) for i in eachindex(cfg[k]) ]  
+            )
+            print("d = ")
+            println(JSON.json(merge(settings, d)))
+            
+    end
+
 
 end
-t1 = time()
-println("Elapsed  $( Int64(round(t1-t0)) )s")
+
+
+
+

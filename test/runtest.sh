@@ -1,4 +1,5 @@
 #!/bin/bash
+
 for filename in e2e.jl unit.jl
 do
 	echo $filename

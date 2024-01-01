@@ -40,21 +40,21 @@ end
 # and returns finished parsed data 
 function parse_files(path, IJ, idx )
    infile = HDF5.h5open(path)
-   num_atoms = size(infile["pos"]["1"])[2]
-   block_size = Int64(round(size(infile["ham"]["1"][:,:])[1]/num_atoms))
+   num_atoms = size(first(infile["pos"]))[2]
+   block_size = Int64(round(size(first(infile["ham"])[:,:])[1]/num_atoms))
 
-   slice1 = [ ((I-1)*block_size+1):(I*block_size) for (I,_) in IJ ]
-   slice2 = [ ((J-1)*block_size+1):(J*block_size) for (_,J) in IJ ]
+   sl1 = [ ((I-1)*block_size+1):(I*block_size) for (I,_) in IJ ]
+   sl2 = [ ((J-1)*block_size+1):(J*block_size) for (_,J) in IJ ]
 
    # the hdf_select-function selects blocks of matrices with given idx  and group g
    select_vec = (file, g, idx, slice) -> file[g][string(idx)][slice]
-   select_mat = (file, g, idx, sl1, sl2) -> transpose(file[g][string(idx)][:,:])[sl1, sl2]
-
-   ham = map( (i,j,k) -> select_mat(infile, "ham", k, i, j), slice1, slice2, idx )
-   pos   =   map( k -> select_mat(infile, "pos",   k,  :, :), idx )
-   cell   =  map( k -> select_mat(infile, "cell",  k,  :, :), idx )
+   select_mat = (file, g, idx, sl1, sl2) -> file[g][string(idx)][sl2, sl1] # transpose!
+   
+   ham = map( (i,j,k) -> permutedims(select_mat(infile, "ham", k, i, j)), sl1, sl2, idx)
+   pos = map( k -> select_mat(infile, "pos",   k,  :, :), idx )
+   cell = map( k -> select_mat(infile, "cell",  k,  :, :), idx )
    species = map( k -> select_vec(infile, "species", k, :), idx )
-
+   
    HDF5.close(infile)
    return ham, pos, cell, species
 end
@@ -67,7 +67,7 @@ function coords2configs(coords, Z, envelope,  cell)
    configs = [] # this array will contain all the configurations (ACEConfig)
    for (i,(I,J)) in enumerate(IJ) # this loops runs over the coords of atoms that forms a bond
       # JuLIP can output rel. coords. It requires an atoms "object" and uses Potentials.neigsz
-      at = JuLIP.Atoms(; X = (R')[i], Z = Z[i], cell = cell[i], pbc = [true, true, true])
+      at = JuLIP.Atoms(; X = R[i], Z = Z[i], cell = cell[i]', pbc = [true, true, true])
       # here I make a large system that is repeated according to pbc
       Rcut = ((r0cut + rcut)^2 + zcut^2)^0.5
       neigh_I = JuLIP.Potentials.neigsz(JuLIP.neighbourlist(at, Rcut), at, I)
@@ -164,7 +164,6 @@ function design_matrix(basis, configs, intercept=false)
    C = Ylm_complex2real(m,n)
    elts::Vector{Vector{Matrix{ComplexF64}}} = [[ zeros(m,n) for i in 1:k] for j in 1:l]
    for (i, config) in enumerate(configs) # for each configuration I will evaluate it under each SymmetricBasis
-      #println(config)
       elts[i] = real([ C[1] * Matrix(item.val) * C[2]' for item in ACE.evaluate(basis, config )  ])
    end
    elts = [ [ elts[i][j] for i in 1:l ] for j in 1:k ]
@@ -396,7 +395,7 @@ function parse_files_depricated(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
        i = N*(I-1)+1
        j = N*(J-1)+1
        append!(H, [ matrices[K][i:(i+N-1), j:(j+N-1) ] ] ) # The hamiltonian-array is extended by our choices
-       append!(R, [ coords[K] ] ) # The hamiltonian-array is extended by our choices
+       append!(R, [ coords[K]' ] ) # The hamiltonian-array is extended by our choices
    end
 
 
@@ -404,7 +403,7 @@ function parse_files_depricated(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
    Z = [zeros(Int64, 1) for i in 1:length(R)]
 
    for i in 1:length(R)
-       n = length(R[i][:,1]); 
+       n = length(R'[i][:,1]); 
        Z[i] = Int64.(14*ones(n))
    end
    
@@ -418,13 +417,13 @@ function parse_files_depricated(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
        error("WHAT KIND OF CELL DO YOU WANT?")
    elseif stdcell 
        unitcell = eval(Meta.parse(read(path * "/" * string(id) * ".cell", String)))
-       cell = [unitcell for _ in 1:length(H)]
+       cell = [unitcell' for _ in 1:length(H)]
    elseif jsoncell
        raw = JSON.parsefile(path * "/" * string(id) * ".cell.json")
        for (ii, K) in enumerate(idx)
            value = raw[string(K-1)]
            for (j, vec) in enumerate(value)
-               cell[ii][j,:] = Float64.( vec )
+               cell[ii][j,:] = Float64.( vec )'
            end
        end
    else 
