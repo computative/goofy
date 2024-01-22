@@ -60,10 +60,12 @@ rmse_train = rmse_jig(_H[1], configs)
 rmse_test = rmse_jig(_H[2], test_configs)
 
 atol = 1e-16
-rmse1 = (rmse_train - [ 0.0007602226785111889 0.00041656646394651266; 
-                        0.00041656646394651266 0.0011093674568751575])
-rmse2 = (rmse_test - [  0.02693919867893994 0.01437344862680931; 
-                        0.01437344862680931 0.005193592832479996])
+rmse1 = (rmse_train - [0.0009011424717721214 0.000468462131530005; 
+                       0.000468462131530005 0.0014721959115846079])
+rmse2 = (rmse_test - [0.03051423105876225 0.015862931969758565; 
+                      0.015862931969758565 0.004722040804591734])
+
+
 if norm(rmse1) > atol 
     @show rmse1 
 end
@@ -76,17 +78,19 @@ gabor_test = rel_jig(_H[2], test_configs)
 
 
 
-rmse3 = (gabor_train - [0.23278827039906394 0.45212357885746823; 
-                        0.45212357885746823 92.6402035166913])
-rmse4 = (gabor_test - [ 0.2773642842965894 0.7580229471196875; 
-                        0.7580229471196875 8.28533180562432])
-if norm(rmse3) > atol 
-    @show rmse3 
+gabor1 = (gabor_train - [0.3384325162748565 0.33843251637734334;
+                         0.33843251637734334 51.335095333088425])
+gabor2 = (gabor_test - [0.3987546858090243 0.3987546859391197;
+                        0.3987546859391197 4.858076939743811])
+
+
+if norm(gabor1) > atol 
+    @show gabor1 
 end
-if norm(rmse4) > atol 
-    @show rmse4 
+if norm(gabor2) > atol 
+    @show gabor2 
 end
 
-pass = (norm(rmse1) + norm(rmse2) + norm(rmse3) + norm(rmse4) < 4*atol)
+pass = (norm(rmse1) + norm(rmse2) + norm(gabor1) + norm(gabor2) < 4*atol)
 
 @show pass

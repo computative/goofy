@@ -122,7 +122,7 @@ function offsite_generator(env, order, maxdeg)
    B1p = ACE.Categorical1pBasis([:bond, :env]; varsym = :be, idxsym=:be) * B1p_env # sum of eqn 20
    # that is all which is needed to get the SymmetricBasis (script-B in the paper)
    function basis(L1,L2)
-      return SymmetricBasis(SphericalMatrix(L1, L2; T = ComplexF64), B1p, Bsel)#; filterfun = maxdeg2filterfun(maxdeg,0.5,0.5))
+      return SymmetricBasis(SphericalMatrix(L1, L2; T = ComplexF64), B1p, Bsel; filterfun = maxdeg2filterfun(maxdeg,0.5,0.5))
    end
    return basis
 end
@@ -193,6 +193,7 @@ end
 function inv_solver(X::Matrix{T}, Y::Vector{T},lambda::Real) where T <: Number
    Xt = X'
    M::Matrix{Number} = (Xt * X + lambda * I)
+   @show size(X)
    @show cond(M)
    return vec( M \ (Xt * Y) )
 end
@@ -305,7 +306,6 @@ function test_setup(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2},
       return statistic
    end
 end
-
 
 
 
