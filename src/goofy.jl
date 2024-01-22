@@ -288,7 +288,6 @@ function test_setup(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2},
                                              method, intercept = false) where T <: Number
    function test_jig( H, configs)
       Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs, intercept)
-      #E::Vector{Matrix{ComplexF64}} = map(method, Hpredict, H)
       m::Int64 , n::Int64 = size(basis)
       statistic::Matrix{Any} = Matrix{Any}(undef,m,n)
       I::Int64 = 1; v::Int64 = 1; w::Int64 = 1
