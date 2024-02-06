@@ -21,12 +21,12 @@ function random_idx(path::String, n::Int64, rcut::Real)
    num_obs_per_ham::Int64 = Int64(ceil(n/num_ham_in_datafile))
    R::Matrix{Float64} = zeros(2,2)
    chosen = []
-   for ham_id in 1:num_ham_in_datafile
+   for (k, ham_id) in enumerate(sort(parse.(Int64,keys(infile["ham"]))))
       R = infile["pos"][string(ham_id)][:,:]
-      while (length(chosen) < ham_id*num_obs_per_ham) & (length(chosen) < n)
+      while (length(chosen) < k*num_obs_per_ham) & (length(chosen) < n)
          I, J = randperm(size(R)[2])[1:2]
          if norm(R[:,J] - R[:,I]) < rcut # choose only atoms closer than rcut
-            append!(chosen, [[(I,J), ham_id]] )
+            append!(chosen, [[(I,J), string(ham_id)]] )
          end
       end
    end
@@ -162,7 +162,7 @@ function design_matrix(basis, configs, intercept=false)
    k::Int64 = length( [ Matrix(item.val) for item in ACE.evaluate(basis, configs[1]) ] )
    # memory allocation for the design matrix. Notice it has 3 dimensions (1 too many) to begin with.
    C = Ylm_complex2real(m,n)
-   elts::Vector{Vector{Matrix{ComplexF64}}} = [[ zeros(m,n) for i in 1:k] for j in 1:l]
+   elts::Vector{Vector{Matrix{Float64}}} = [[ zeros(m,n) for i in 1:k] for j in 1:l]
    for (i, config) in enumerate(configs) # for each configuration I will evaluate it under each SymmetricBasis
       elts[i] = real([ C[1] * Matrix(item.val) * C[2]' for item in ACE.evaluate(basis, config )  ])
    end
@@ -172,7 +172,10 @@ function design_matrix(basis, configs, intercept=false)
       _m, _n = size(X)
       X = hcat(ones(_m), X)
    end
-   return X
+   if norm(X - real(X)) > 1e-8
+      error("Design matrix not real")
+   end
+   return real(X)
 end
 
 
@@ -190,9 +193,21 @@ function lsqr_solver(X::Matrix{T}, Y::Vector{T},lambda::Real) where T <: Number
    return lsqr(X,Y, damp=lambda)
 end
 
-function inv_solver(X::Matrix{T}, Y::Vector{T},lambda::Real) where T <: Number
+function lsqr_solver(X::Matrix{Float64}, Y::Vector{Float64},lambda::Real) 
+   return lsqr(X,Y, damp=lambda)
+end
+
+function inv_solver(X::Matrix{ComplexF64}, Y::Vector{ComplexF64},lambda::Float64)
    Xt = X'
    M::Matrix{Number} = (Xt * X + lambda * I)
+   @show size(X)
+   @show cond(M)
+   return vec( M \ (Xt * Y) )
+end
+
+function inv_solver(X::Matrix{Float64}, Y::Vector{Float64},lambda::Float64) 
+   Xt = X'
+   M::Matrix{Float64} = (Xt * X + lambda * I)
    @show size(X)
    @show cond(M)
    return vec( M \ (Xt * Y) )
@@ -218,9 +233,9 @@ function train(system, ace_param, fit_param)
    basegen = offsite_generator( envelope, order, degree )
 
    basize = sum(collect(values(L_cfg))) # basis size (in tight binding-sense): Total orbital count
-   coef::Matrix{Vector{ComplexF64}} = [ [0.0] for _ in 1:basize, _ in 1:basize] # this will hold coeffs
-   fitted::Matrix{Vector{ComplexF64}} = [ [0.0] for _ in 1:basize, _ in 1:basize] # fitted values
-   residuals::Matrix{Vector{ComplexF64}} = [ [0.0] for _ in 1:basize, _ in 1:basize] # residuals
+   coef::Matrix{Vector{Float64}} = [ [0.0] for _ in 1:basize, _ in 1:basize] # this will hold coeffs
+   fitted::Matrix{Vector{Float64}} = [ [0.0] for _ in 1:basize, _ in 1:basize] # fitted values
+   residuals::Matrix{Vector{Float64}} = [ [0.0] for _ in 1:basize, _ in 1:basize] # residuals
    L_count = sum(collect(values(L_cfg))) # the total sum of 'counts of each orbital symmetry-type'
    L = sort(collect(keys(L_cfg))) # the keys are the user-selected values for L1 and L2.
    basis::Array{SymmetricBasis, 2} = Array{SymmetricBasis}(undef, L_count, L_count)
@@ -236,6 +251,10 @@ function train(system, ace_param, fit_param)
          for (c, block) in enumerate(H)
             Y[  ( (c-1)*m*n +1 ): ( c*m*n ) ] = reshape(block[A:(A+m-1), B:(B+n-1)], m*n )
          end
+         if norm( real(Y)- Y ) > 1e-8
+            error("Y is not real")
+         end
+         Y = real(Y)
          # this makes a design matrix ( symmetric basis, vector of configs) -> Regular matrix with samples 
          #                                                                          along axis 1 and basis along axis 2 
          X = design_matrix(basis[a,b], configs, intercept) # make design-matrices by evaluating the basis at the configs
@@ -256,14 +275,14 @@ function predict(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2},
    K = [ size( first( ACE.evaluate(basis[v,w], first(configs)) ).val ) for v in 1:m , w in 1:n ]
    k::Int64 = sum([ item[1] for item in K[:,1]]) # størrelse på hver H-matrise (e.g. 4x4)
    l::Int64 = length(configs); # ant obervasjoner
-   Hpredict::Array{ComplexF64, 3} = zeros(l, k, k)
+   Hpredict::Array{Float64, 3} = zeros(l, k, k)
    A::Int64 = 1; v::Int64 = 1; w::Int64 = 1
    for a in 1:m
       B::Int64 = 1
       for b in 1:n
          v,w = size( first(ACE.evaluate(basis[a,b], first(configs))).val) # dimensjonene til blokken (i,j) 
          C::Vector{Matrix{ComplexF64}} = Ylm_complex2real(v,w)
-         res::Vector{Matrix{ComplexF64}} = [ zeros(ComplexF64, v,w) for i in 1:l ]
+         res::Vector{Matrix{Float64}} = [ zeros(Float64, v,w) for i in 1:l ]
          for (c, config) in enumerate(configs) # her er det feil. a,b må være strl ikke L1,L2
             D = real([ C[1] * Matrix(item.val) * C[2]' for item in ACE.evaluate(basis[a,b], config )  ] )
             if intercept
@@ -287,7 +306,8 @@ end
 function test_setup(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, 
                                              method, intercept = false) where T <: Number
    function test_jig( H, configs)
-      Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs, intercept)
+      H = real(H)
+      Hpredict::Vector{Matrix{Float64}} = predict(coef, basis, configs, intercept)
       m::Int64 , n::Int64 = size(basis)
       statistic::Matrix{Any} = Matrix{Any}(undef,m,n)
       I::Int64 = 1; v::Int64 = 1; w::Int64 = 1
@@ -295,8 +315,8 @@ function test_setup(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2},
          J::Int64 = 1
          for j in 1:n
             v , w = size( first(ACE.evaluate(basis[i,j], first(configs))).val )
-            Hblock = [ h[I:(I+v-1),J:(J+w-1)] for h in H]
             Hpblock = [ h[I:(I+v-1),J:(J+w-1)] for h in Hpredict]
+            Hblock = [ h[I:(I+v-1),J:(J+w-1)] for h in H]
             statistic[i,j] = method(Hpblock, Hblock)
             J += w
          end

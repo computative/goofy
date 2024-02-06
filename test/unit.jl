@@ -18,7 +18,7 @@ if !pass1
     @show [ (r[J,:] - r[I,:]) < rcut for (r, (I, J) ) in zip(R', IJ) ]
 end
 
-_H, _R, _IJ, _cell, _Z = parse_files_depricated("/home/marius/Dokumenter/Skole/phd/goofy-e2e-data", "1", n, 1, IJ, rcut)
+_H, _R, _IJ, _cell, _Z = parse_files_depricated(path, "1", n, 1, IJ, rcut)
 atol = 1e-14
 
 

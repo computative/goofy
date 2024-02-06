@@ -28,7 +28,7 @@ for len in lens
     _H = []; _R = []; _unitcell = []; _Z = []; _IJ = []
     
     for _ in 1:2
-        path = "/home/marius/Dokumenter/Skole/phd/goofy.git/test/data555.h5"
+        path = "/home/marius/Dokumenter/Skole/phd/goofy.git/test/_dft_1.h5"#"/home/marius/Dokumenter/Skole/phd/goofy.git/test/_dft_1.h5"
         chosen = random_idx(path, len, rcut)
         IJ = chosen[:,1]
         idx = chosen[:,2]
@@ -50,19 +50,19 @@ for len in lens
     env = CylindricalBondEnvelope(rcut, renv, rcut/2)
     test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], env, _unitcell[2])
     
-    function rms(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}}) 
+    function rms(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}}) 
         Z = map( (x,y) -> x .- y, X, Y )
         N = length(Z)*length(first(Z))
         return ( real(dot( Z, Z ))/N )^0.5
     end
     
-    function rel(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}}) 
+    function rel(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}}) 
         Z = map( (x,y) -> x./ (y .+ 0) .- 1, X, Y )
         N = length(Z)*length(first(Z))
         return ( real(dot( Z, Z ))/N )^0.5
     end
 
-    function res(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}})
+    function res(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}})
         N = length(X)*length(first(X))
         residuals = map( (x,y) -> norm(x .- y)/N^0.5, X, Y )
         return residuals

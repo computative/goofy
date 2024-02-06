@@ -7,6 +7,10 @@ using ACE.Wigner: wigner_D
 # ved at den baade transformerer koordinatene med matrisen Q 
 # og transformerer operatoren med wignermatrisene
 
+C = [ 0.0+0.70710678*1im 0.0+0.0*1im 0.0+0.70710678*1im;
+  0.0+0.0*1im        1.0+0.0*1im 0.0+0.0*1im        ;
+ -0.70710678+0.0*1im  0.0+0.0*1im 0.70710678+0.0*1im ]
+
 pass = true
 
 for i in 1:20

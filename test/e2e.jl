@@ -36,13 +36,13 @@ c, _, __, basis, configs = train(system, ace_param, fit_param)
 
 
 
-function rmse(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}}) 
+function rmse(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}}) 
     Z = map( (x,y) -> x .- y, X, Y )
     N = length(Z)*length(first(Z))
     return ( real(dot( Z, Z ))/N )^0.5
 end
 
-function rel(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}}) 
+function rel(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}}) 
     Z = map( (x,y) -> x./ (y .+ 0) .- 1, X, Y )
     N = length(Z)*length(first(Z))
     return ( real(dot( Z, Z ))/N )^0.5
@@ -60,11 +60,8 @@ rmse_train = rmse_jig(_H[1], configs)
 rmse_test = rmse_jig(_H[2], test_configs)
 
 atol = 1e-16
-rmse1 = (rmse_train - [0.0009011424717721214 0.000468462131530005; 
-                       0.000468462131530005 0.0014721959115846079])
-rmse2 = (rmse_test - [0.03051423105876225 0.015862931969758565; 
-                      0.015862931969758565 0.004722040804591734])
-
+rmse1 = (rmse_train - [0.000901142471771672 0.0004684621315295579; 0.0004684621315295579 0.001472195911584608])
+rmse2 = (rmse_test - [0.030514231058630572 0.015862931969614975; 0.015862931969614975 0.004722040791980965])
 
 if norm(rmse1) > atol 
     @show rmse1 
@@ -77,11 +74,8 @@ gabor_train = rel_jig(_H[1], configs)
 gabor_test = rel_jig(_H[2], test_configs)
 
 
-
-gabor1 = (gabor_train - [0.3384325162748565 0.33843251637734334;
-                         0.33843251637734334 51.335095333088425])
-gabor2 = (gabor_test - [0.3987546858090243 0.3987546859391197;
-                        0.3987546859391197 4.858076939743811])
+gabor1 = (gabor_train - [0.33843251626830323 0.33843251636275534; 0.33843251636275534 51.33509850001293])
+gabor2 = (gabor_test - [0.39875468580069673 0.3987546859206059; 0.3987546859206059 4.858077027770631])
 
 
 if norm(gabor1) > atol 

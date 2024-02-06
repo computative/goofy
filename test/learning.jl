@@ -29,11 +29,12 @@ for len in lens
     _H = []; _R = []; _unitcell = []; _Z = []; _IJ = []
     
     for _ in 1:2
-        path = "/home/marius/Dokumenter/Skole/phd/goofy.git/test/data555.h5"
+        path = "/home/marius/Dokumenter/Skole/phd/goofy.git/test/D_dft_1.h5"
         chosen = random_idx(path, len, rcut)
         IJ = chosen[:,1]
         idx = chosen[:,2]
         H, R, cell, Z = parse_files(path, IJ, idx)
+
         append!(_R,[R]); append!(_H,[H]); append!(_unitcell,[cell]); append!(_Z,[Z]); append!(_IJ,[IJ]); 
     end
 
@@ -44,22 +45,21 @@ for len in lens
     system = [_IJ[1], _R[1], _Z[1], _unitcell[1]]
     c, fitted, residuals, basis, configs = train(system, ace_param, fit_param)
 
-
     #retucer takes in vector of blocks where the statistic has been applied
     
-    function rms(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}}) 
+    function rms(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}}) 
         Z = map( (x,y) -> x .- y, X, Y )
         N = length(Z)*length(first(Z))
         return ( real(dot( Z, Z ))/N )^0.5
     end
     
-    function rel(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}}) 
+    function rel(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}}) 
         Z = map( (x,y) -> x./ (y .+ 0) .- 1, X, Y )
         N = length(Z)*length(first(Z))
         return ( real(dot( Z, Z ))/N )^0.5
     end
 
-    function res(X::Vector{Matrix{ComplexF64}}, Y::Vector{Matrix{ComplexF64}})
+    function res(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}})
         N = length(X)*length(first(X))
         residuals = map( (x,y) -> norm(x .- y)/N^0.5, X, Y )
         return residuals
@@ -74,7 +74,7 @@ for len in lens
     
     println("train")
     println( JSON.json(Dict( "rmse" => vec(rms_jig( _H[1],configs)), "rel_err" => vec(rel_jig(_H[1],configs)) )))
-    
+
     println("test")
     println( JSON.json(Dict( "rmse" => vec(rms_jig(_H[2],test_configs)), "rel_err" => vec(rel_jig(_H[2],test_configs)) )))
     
