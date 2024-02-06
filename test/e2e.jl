@@ -1,4 +1,3 @@
-
 using goofy, JSON, HDF5, LinearAlgebra, Random
 using ACE: BondEnvelope, CylindricalBondEnvelope
 
@@ -10,7 +9,7 @@ file_ids = ["1","1"]
 lambda = 1e-7
 order = 1; degree = 5
 len = 20
-path = "/home/marius/Dokumenter/Skole/phd/goofy-e2e-data/e2e.h5"
+path = abspath(@__DIR__ , "../../goofy.files/data/e2e/e2e.h5")  #"/home/marius/Dokumenter/Skole/phd/goofy-e2e-data/e2e.h5"
 # it is assumed that the order of the orbitals in the sub-blocks are the following:
 # first come all the s-orbitals, then all the p-orbitals, then the d-orbitals and so on
 

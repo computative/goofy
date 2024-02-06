@@ -3,7 +3,7 @@ using goofy, LinearAlgebra
 
 rcut = 5.0
 n = 100
-path = "/home/marius/Dokumenter/Skole/phd/goofy-e2e-data"
+path = abspath(@__DIR__ , "../../goofy.files/data/e2e") 
 
 chosen = random_idx(path * "/e2e.h5", n, rcut)
 IJ = chosen[:,1]
