@@ -1,5 +1,7 @@
+t0 = time()
 using goofy, JSON, HDF5, LinearAlgebra, Random
 using ACE: BondEnvelope, CylindricalBondEnvelope
+using Dates
 
 # learning curves from the terminal
 # execute with julia --project=. test/learning.jl r l o d l   
@@ -14,11 +16,10 @@ renv = rcut/2;
 lambda = parse(Float64, ARGS[2])
 order = parse(Int64, ARGS[3]); degree = parse(Int64, ARGS[4])
 lens = parse.(Int, split(chop(ARGS[5]; head=1, tail=1), ','))
-
+intercept = false
 
 # it is assumed that the order of the orbitals in the sub-blocks are the following:
 # first come all the s-orbitals, then all the p-orbitals, then the d-orbitals and so on
-
 
 
 # H, R are collections of configurations, Z and cell are charge and unit cell for all configs
@@ -27,27 +28,30 @@ for len in lens
     _H = []; _R = []; _unitcell = []; _Z = []; _IJ = []
     
     for _ in 1:2
-        path = "/home/marius/Dokumenter/Skole/phd/goofy.git/test/_dft_1.h5"#"/home/marius/Dokumenter/Skole/phd/goofy.git/test/_dft_1.h5"
+        path = abspath(@__DIR__, 
+                "../goofy.files/data/structures/structure_diam_bulk333_300K/_dft_1.h5")
         chosen = random_idx(path, len, rcut)
         IJ = chosen[:,1]
         idx = chosen[:,2]
         H, R, cell, Z = parse_files(path, IJ, idx)
-        append!(_R,[R]); append!(_H,[H]); append!(_unitcell,[cell]); append!(_Z,[Z]); append!(_IJ,[IJ]); 
-    end
 
+        append!(_R,[R]); append!(_H,[H]); append!(_unitcell,[cell]); 
+        append!(_Z,[Z]); append!(_IJ,[IJ]); 
+    end
 
     L_cfg = Dict(0=>1, 1=>1)  # r0cut rcut
     ace_param = [degree, order, rcut, renv, L_cfg]
-    fit_param = [_H[1], lambda, lsqr_solver]
+    fit_param = [_H[1], lambda, lsqr_solver, intercept]
     system = [_IJ[1], _R[1], _Z[1], _unitcell[1]]
-
-
     c, fitted, residuals, basis, configs = train(system, ace_param, fit_param)
-    
-    # testing
-    
-    env = CylindricalBondEnvelope(rcut, renv, rcut/2)
-    test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], env, _unitcell[2])
+
+    label = join(split(split(path, "/")[end-1], "_")[2:end-1], "-")
+    timestamp   = Dates.format(now(), "dd-mm-yyTHH-MM-SS")
+    outpath = abspath(@__DIR__, 
+        "../goofy.files/models/" *  label * "-" * timestamp * ".mdl") 
+    write_model(basis,c,outpath)
+
+    #retucer takes in vector of blocks where the statistic has been applied
     
     function rms(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}}) 
         Z = map( (x,y) -> x .- y, X, Y )
@@ -68,38 +72,19 @@ for len in lens
     end
     
 
-    res_jig = test_setup(c, basis, res)
+    env = CylindricalBondEnvelope(rcut, renv, rcut/2)
+    test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], env, _unitcell[2])
 
-    settings = Dict(
-        "length" => len, 
-        "degree" => degree,
-        "order" => order,
-        "rcut" => rcut,
-        "lambda" => lambda
-    )
+    rms_jig = test_setup(c, basis, rms)
+    rel_jig = test_setup(c, basis, rel)
+    
+    println("train")
+    println( JSON.json(Dict( "rmse" => vec(rms_jig( _H[1],configs)), "rel_err" => vec(rel_jig(_H[1],configs)) )))
 
-    symm = ["SS","PS","SP","PP"]
-    cfg = [configs, test_configs]
-
-    for (k, mode) in enumerate(["train", "test"])       
-        res_dict = Dict( symm .=> vec(res_jig(_H[k], cfg[k] ) ) )
-        sizes = map(j -> [ abs(_H[k][i][j]) for i in eachindex(_H[k]) ], collect(eachindex(basis)))
-        size_dict = Dict( symm .=> sizes )
-        
-        d = Dict(
-            "mode" => mode,
-            "size" => size_dict, 
-            "residuals" => res_dict, 
-            "separation" =>  [norm(first(cfg[k][i]).rr0 ) for i in eachindex(cfg[k]) ]  
-            )
-            print("d = ")
-            println(JSON.json(merge(settings, d)))
-            
-    end
-
+    println("test")
+    println( JSON.json(Dict( "rmse" => vec(rms_jig(_H[2],test_configs)), "rel_err" => vec(rel_jig(_H[2],test_configs)) )))
+    
 
 end
-
-
-
-
+t1 = time()
+println("Elapsed  $( Int64(round(t1-t0)) )s")

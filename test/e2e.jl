@@ -29,7 +29,7 @@ end
 
 L_cfg = Dict(0=>1, 1=>1)  # r0cut rcut
 ace_param = [degree, order, rcut, renv, L_cfg]
-fit_param = [_H[1], lambda, lsqr_solver, false]
+fit_param = [_H[1], lambda, lsqr_solver]
 system = [_IJ[1], _R[1], _Z[1], _unitcell[1]]
 c, _, __, basis, configs = train(system, ace_param, fit_param)
 

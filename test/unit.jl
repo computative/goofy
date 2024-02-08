@@ -5,9 +5,7 @@ rcut = 5.0
 n = 100
 path = abspath(@__DIR__ , "../../goofy.files/data/e2e") 
 
-chosen = random_idx(path * "/e2e.h5", n, rcut)
-IJ = chosen[:,1]
-idx = chosen[:,2]
+IJ, idx = random_idx(path * "/e2e.h5", n, rcut)
 H, R, cell, Z = parse_files(path * "/e2e.h5", IJ, idx )
 
 pass1 = reduce(&, [ norm(r[J,:] - r[I,:]) < rcut for (r, (I, J) ) in zip(R', IJ) ])

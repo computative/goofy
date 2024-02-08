@@ -1,16 +1,14 @@
 module goofy
 
-export coords2configs, offsite_generator, design_matrix, train, predict, test_setup, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated, depricated_test, qr_solver, lsqr_solver, inv_solver
+export coords2configs, offsite_generator, design_matrix, train, predict, test_setup, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated, depricated_test, qr_solver, lsqr_solver, inv_solver, write_item, read_item
 
 using JSON, HDF5, JuLIP, Statistics, Plots, Printf, LinearAlgebra, InteractiveUtils, Random, IterativeSolvers
-using StaticArrays, LowRankApprox, IterativeSolvers, Distributed, DistributedArrays, ACE
+using StaticArrays, LowRankApprox, IterativeSolvers, Distributed, DistributedArrays, ACE, Serialization
 import ACE.scaling, ACE.write_dict, ACE.read_dict
 using ACE: PolyTransform, SphericalMatrix, PIBasis, SymmetricBasis,
            SimpleSparseBasis, Utils.RnYlm_1pbasis,  
            Categorical1pBasis, filter, State, ACEConfig,
            evaluate_d, get_spec, evaluate, PositionState, BondEnvelope, CylindricalBondEnvelope
-
-
 
 # n should divide the number of hamiltonians in the datafile
 # path : h5-file. n : number of observations, rcut : cutoff radius, 
@@ -32,7 +30,10 @@ function random_idx(path::String, n::Int64, rcut::Real)
    end
    HDF5.close(infile)
    # I convert a vector of vectors to matrix and return that matrix
-   return permutedims(reduce(hcat , chosen)) #[ chosen[i][j] for i in eachindex(chosen), j in 1:2]
+   choice = permutedims(reduce(hcat , chosen)) #[ chosen[i][j] for i in eachindex(chosen), j in 1:2]
+   IJ = choice[:,1]
+   idx = choice[:,2]
+   return IJ, idx
 end
 
 
@@ -156,7 +157,7 @@ end
 
 
 
-function design_matrix(basis, configs, intercept=false)
+function design_matrix(basis, configs)
    # l is an integer equal to the highest dimension of the span of the summetric basis. 
    l::Int64 = length(configs); m::Int64, n::Int64 = size(ACE.evaluate(basis, configs[1])[1].val)
    k::Int64 = length( [ Matrix(item.val) for item in ACE.evaluate(basis, configs[1]) ] )
@@ -168,10 +169,6 @@ function design_matrix(basis, configs, intercept=false)
    end
    elts = [ [ elts[i][j] for i in 1:l ] for j in 1:k ]
    X = reduce(hcat,[reduce(vcat,[reshape(elts[i][j],m*n) for j in 1:l]) for i in 1:k])
-   if intercept
-      _m, _n = size(X)
-      X = hcat(ones(_m), X)
-   end
    if norm(X - real(X)) > 1e-8
       error("Design matrix not real")
    end
@@ -218,8 +215,7 @@ end
 # this function takes all the samples of the system and parameters. It returns a model struct
 function train(system, ace_param, fit_param)
    degree::Int64, order::Int64, r0cut::Float64, rcut::Float64, L_cfg::Dict{Int64, Int64} = ace_param #
-   H::Vector{Matrix{ComplexF64}}, lambda::Float64, method, intercept::Bool = fit_param #
-   #H::Vector{Matrix{ComplexF64}}, lambda::Float64, method::String, intercept::Bool = fit_param #
+   H::Vector{Matrix{ComplexF64}}, lambda::Float64, method = fit_param #
    IJ, R::Vector{Matrix{Float64}}, Z::Vector{Vector{Int64}}, cell::Vector{Matrix{Float64}} = system # jeg har sjekket de tre linjene at riktig ting pakkes inn og ut på riktig sted
    # I can convert coords -> rel. coords -> configurations using the ingredients below
    envelope::CylindricalBondEnvelope = ACE.CylindricalBondEnvelope(r0cut, rcut, r0cut/2)
@@ -257,7 +253,7 @@ function train(system, ace_param, fit_param)
          Y = real(Y)
          # this makes a design matrix ( symmetric basis, vector of configs) -> Regular matrix with samples 
          #                                                                          along axis 1 and basis along axis 2 
-         X = design_matrix(basis[a,b], configs, intercept) # make design-matrices by evaluating the basis at the configs
+         X = design_matrix(basis[a,b], configs) # make design-matrices by evaluating the basis at the configs
          coef[a,b] = method(X, Y, lambda)
          fitted[a,b] = X*coef[a,b] # these are the fitted values ...
          residuals[a,b] = Y - fitted[a,b] # ... and the residuals
@@ -268,8 +264,17 @@ function train(system, ace_param, fit_param)
    return coef, fitted, residuals, basis, configs
 end
 
-function predict(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, 
-                                       configs, intercept=false) where T <: Number
+function write_item(item, path::String)
+   return Serialization.serialize(path,item)
+end
+
+function read_item(path::String)
+   return Serialization.deserialize(path)
+end
+
+
+
+function predict(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, configs) where T <: Number
 
    m::Int64 , n::Int64 = size(basis) # antall symmetrityper. I vårt tilfelle 2x2 
    K = [ size( first( ACE.evaluate(basis[v,w], first(configs)) ).val ) for v in 1:m , w in 1:n ]
@@ -285,13 +290,7 @@ function predict(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2},
          res::Vector{Matrix{Float64}} = [ zeros(Float64, v,w) for i in 1:l ]
          for (c, config) in enumerate(configs) # her er det feil. a,b må være strl ikke L1,L2
             D = real([ C[1] * Matrix(item.val) * C[2]' for item in ACE.evaluate(basis[a,b], config )  ] )
-            if intercept
-               _m,_n = size(D[1])
-               D0 = ones(_m,_n)
-               res[c] = D0 * coef[a,b][1] + sum([ D[i-1] * coef[a,b][i] for i in 2:length(coef[a,b]) ])
-            else
-               res[c] = sum([ D[i] * coef[a,b][i] for i in 1:length(coef[a,b]) ])
-            end
+            res[c] = sum([ D[i] * coef[a,b][i] for i in 1:length(coef[a,b]) ])
          end
          Hpredict[:,A:(A+v-1),B:(B+w-1)] =  [res[r][s,t] for r in 1:l, s in 1:v, t in 1:w ]
          B += w
@@ -303,11 +302,10 @@ end
 
 
 
-function test_setup(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, 
-                                             method, intercept = false) where T <: Number
+function test_setup(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, method) where T <: Number
    function test_jig( H, configs)
       H = real(H)
-      Hpredict::Vector{Matrix{Float64}} = predict(coef, basis, configs, intercept)
+      Hpredict::Vector{Matrix{Float64}} = predict(coef, basis, configs)
       m::Int64 , n::Int64 = size(basis)
       statistic::Matrix{Any} = Matrix{Any}(undef,m,n)
       I::Int64 = 1; v::Int64 = 1; w::Int64 = 1
@@ -332,8 +330,8 @@ end
 
 
 function depricated_test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, 
-   configs, H, method, eps::Float64=1e-15, intercept = false)
-Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs, intercept)
+   configs, H, method, eps::Float64=1e-15)
+Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs)
 E::Vector{Matrix{ComplexF64}} = [ zeros(size(H[i])) for i in 1:length(H)]
 if method == "rmse"
 E = ( H - Hpredict )
@@ -416,8 +414,6 @@ function parse_files_depricated(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
        append!(H, [ matrices[K][i:(i+N-1), j:(j+N-1) ] ] ) # The hamiltonian-array is extended by our choices
        append!(R, [ coords[K]' ] ) # The hamiltonian-array is extended by our choices
    end
-
-
    
    Z = [zeros(Int64, 1) for i in 1:length(R)]
 
@@ -425,7 +421,6 @@ function parse_files_depricated(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
        n = length(R'[i][:,1]); 
        Z[i] = Int64.(14*ones(n))
    end
-   
 
    # I assume that the cell does not change for each sample.
    jsoncell = isfile(path * "/" * string(id) * ".cell.json")
@@ -450,7 +445,5 @@ function parse_files_depricated(path, id, len, vol = 1, IJ = Nothing, rcut=5.0)
    end
    return H, R, IJ, cell, Z
 end
-
-
 
 end
