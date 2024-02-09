@@ -57,7 +57,7 @@ for mode in ["test", "train"]:
     #ax[1].set_xlim([2, 14])
     #ax[1].set_ylim([1e-7, 1e-2])
     fig.tight_layout()
-    s = f"{pwd}/figs/density/{mode}_{rcut}_{order}_{degree}_{lam}_{length}.png"
+    s = os.path.abspath(f"{pwd}/../../goofy.files/plots/density/{mode}_{rcut}_{order}_{degree}_{lam}_{length}.png")
     fig.savefig(s)
     #fig.show()
     #input("Press enter to continue...")

@@ -48,9 +48,9 @@ for len in lens
 
     label = join(split(split(path, "/")[end-1], "_")[2:end-1], "-")
     timestamp   = Dates.format(now(), "dd-mm-yyTHH-MM-SS")
-    outpath = abspath(@__DIR__, "../../goofy.files/models/")
-    write_item((basis,c),outpath *  label * "-" * timestamp * ".mdl")
-    write_item(chosen[1],outpath *  label * "-" * timestamp * ".cho")
+    outpath = abspath(@__DIR__, "../../goofy.files/models/L")
+    write_item((basis,c),outpath * string(len) * "-" *  label * "-" * timestamp * ".mdl")
+    write_item(chosen[1],outpath * string(len) * "-" *  label * "-" * timestamp * ".cho")
 
     #retucer takes in vector of blocks where the statistic has been applied
     

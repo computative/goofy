@@ -1,4 +1,4 @@
-using goofy, JSON, HDF5, LinearAlgebra, Random
+using goofy, JSON, HDF5, LinearAlgebra, Random, Dates
 using ACE: BondEnvelope, CylindricalBondEnvelope
 
 # learning curves from the terminal
@@ -26,13 +26,18 @@ lens = parse.(Int, split(chop(ARGS[5]; head=1, tail=1), ','))
 for len in lens
     _H = []; _R = []; _unitcell = []; _Z = []; _IJ = []
     
-    for _ in 1:2
-        path = "/home/marius/Dokumenter/Skole/phd/goofy.git/test/_dft_1.h5"#"/home/marius/Dokumenter/Skole/phd/goofy.git/test/_dft_1.h5"
-        chosen = random_idx(path, len, rcut)
-        IJ = chosen[:,1]
-        idx = chosen[:,2]
+    chosen = []
+    path = ""
+    for _ in ["train", "test"]
+        path = abspath(@__DIR__, 
+                "../../goofy.files/data/structures/structure_diam_bulk333_300K/_dft_1.h5")
+        IJ, idx = random_idx(path, len, rcut)
+
+        append!(chosen,[(IJ, idx)])
         H, R, cell, Z = parse_files(path, IJ, idx)
-        append!(_R,[R]); append!(_H,[H]); append!(_unitcell,[cell]); append!(_Z,[Z]); append!(_IJ,[IJ]); 
+
+        append!(_R,[R]); append!(_H,[H]); append!(_unitcell,[cell]); 
+        append!(_Z,[Z]); append!(_IJ,[IJ]); 
     end
 
 
@@ -42,12 +47,18 @@ for len in lens
     system = [_IJ[1], _R[1], _Z[1], _unitcell[1]]
 
 
-    c, fitted, residuals, basis, configs = train(system, ace_param, fit_param)
+    c, _, _, basis, configs = train(system, ace_param, fit_param)
     
+    label = join(split(split(path, "/")[end-1], "_")[2:end-1], "-")
+    timestamp   = Dates.format(now(), "dd-mm-yyTHH-MM-SS")
+    outpath = abspath(@__DIR__, "../../goofy.files/models/L")
+    write_item((basis,c),outpath * string(len) * "-" *  label * "-" * timestamp * ".mdl")
+    write_item(chosen[1],outpath * string(len) * "-" *  label * "-" * timestamp * ".cho")
+
     # testing
     
-    env = CylindricalBondEnvelope(rcut, renv, rcut/2)
-    test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], env, _unitcell[2])
+    test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], 
+                        CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2])
     
     function rms(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}}) 
         Z = map( (x,y) -> x .- y, X, Y )

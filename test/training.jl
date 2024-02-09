@@ -42,7 +42,6 @@ for len in lens
     c, fitted, residuals, basis, configs = train(system, ace_param, fit_param)
 
     label = join(split(split(path, "/")[end-1], "_")[2:end-1], "-")
-
     timestamp   = Dates.format(now(), "dd-mm-yyTHH-MM-SS")
     outpath = abspath(@__DIR__, "../../goofy.files/models/L")
     write_item((basis,c),outpath * string(len) * "-" *  label * "-" * timestamp * ".mdl")
