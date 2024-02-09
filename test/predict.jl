@@ -3,7 +3,7 @@ using ACE: BondEnvelope, CylindricalBondEnvelope
 using Dates
 
 # execute with julia --project=. test/learning.jl r l p p p p
-# rcut [len] path_test path_train path_choice path_model
+# rcut len path_test path_train path_choice path_model
 
 
 # basis config

@@ -27,12 +27,12 @@ for len in lens
     _H = []; _R = []; _unitcell = []; _Z = []; _IJ = []
     
     chosen = []
-    for (i, intype) in enumerate(["train", "test"])
+    path = ""
+    for _ in ["train", "test"]
         path = abspath(@__DIR__, 
                 "../../goofy.files/data/structures/structure_diam_bulk333_300K/_dft_1.h5")
         IJ, idx = random_idx(path, len, rcut)
-        IJ = chosen[i][:,1]
-        idx = chosen[i][:,2]
+
         append!(chosen,[(IJ, idx)])
         H, R, cell, Z = parse_files(path, IJ, idx)
 
