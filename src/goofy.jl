@@ -1,6 +1,6 @@
 module goofy
 
-export coords2configs, offsite_generator, design_matrix, train, predict, test_setup, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated, depricated_test, qr_solver, lsqr_solver, inv_solver, write_item, read_item
+export coords2configs, offsite_generator, design_matrix, train, predict, test_setup, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated, depricated_test, qr_solver, lsqr_solver, inv_solver, write_item, read_item,vmem
 
 using JSON, HDF5, JuLIP, Statistics, Plots, Printf, LinearAlgebra, InteractiveUtils, Random, IterativeSolvers
 using StaticArrays, LowRankApprox, IterativeSolvers, Distributed, DistributedArrays, ACE, Serialization
@@ -31,7 +31,7 @@ function random_idx(path::String, n::Int64, rcut::Real)
    HDF5.close(infile)
    # I convert a vector of vectors to matrix and return that matrix
    choice = permutedims(reduce(hcat , chosen)) #[ chosen[i][j] for i in eachindex(chosen), j in 1:2]
-   IJ = choice[:,1]
+   IJ::Vector{Tuple{Int64,Int64}} = choice[:,1]
    idx = choice[:,2]
    return IJ, idx
 end
@@ -61,11 +61,12 @@ function parse_files(path, IJ, idx )
 end
 
 
-function coords2configs(coords, Z, envelope,  cell)
-   IJ::Vector{Tuple{Int64, Int64}}, R::Vector{Matrix{Float64}} = coords
+function coords2configs(IJ, R, Z,  cell, envelope)
+   #IJ::Vector{Tuple{Int64, Int64}}, R::Vector{Matrix{Float64}} = coords
    # -!- DET BLIR VIKTIG SJEKKE AT INGEN FLERE URPESISHETER Á LA rcut vs Rcut er tilstede i hello world jeg fikk fra liwei
    r0cut::Float64 = envelope.r0cut; zcut::Float64 = envelope.zcut; rcut::Float64 = envelope.rcut
    configs = [] # this array will contain all the configurations (ACEConfig)
+   
    for (i,(I,J)) in enumerate(IJ) # this loops runs over the coords of atoms that forms a bond
       # JuLIP can output rel. coords. It requires an atoms "object" and uses Potentials.neigsz
       at = JuLIP.Atoms(; X = R[i], Z = Z[i], cell = cell[i]', pbc = [true, true, true])
@@ -90,7 +91,6 @@ function coords2configs(coords, Z, envelope,  cell)
 end
 
 
-
 function filter_offsite_be(bb,maxdeg,λ_n=.5,λ_l=.5)
    if length(bb) == 0; return false; end
    deg_n = ceil(Int64,maxdeg * λ_n)
@@ -107,8 +107,6 @@ end
 function maxdeg2filterfun(maxdeg,λ_n=.5,λ_l=.5)
    return bb -> filter_offsite_be(bb,maxdeg,λ_n,λ_l)
 end
-
-
 
 
 #  num_L1 and num_L2 are integers that say how many orbitals of each type is used
@@ -128,6 +126,19 @@ function offsite_generator(env, order, maxdeg)
    return basis
 end
 
+
+function req_mem(order, deg, nsamples)
+   nbasis = 10^0.8641218 * order^(0.5631694*deg)
+   ram = 2.957889e+06 + 3.105044e+01*nsamples + 1.659919e+02*nbasis + 6.276570e-01*nsamples*nbasis
+   return Int64(round(ram))
+end
+
+function avail_mem()
+   lines = readlines(`free -b`)
+   mem = parse(Int64,[substr for substr in split(lines[2], " ") if substr != ""][4])
+   swap = parse(Int64,[substr for substr in split(lines[3], " ") if substr != ""][4])
+   return Int64(round((mem + swap)/1000))
+end
 
 
 function Ylm_complex2real(m::Int64,n::Int64)
@@ -154,7 +165,6 @@ function Ylm_complex2real(m::Int64,n::Int64)
    end
    return C
 end
-
 
 
 function design_matrix(basis, configs)
@@ -210,8 +220,6 @@ function inv_solver(X::Matrix{Float64}, Y::Vector{Float64},lambda::Float64)
    return vec( M \ (Xt * Y) )
 end
 
-
-
 # this function takes all the samples of the system and parameters. It returns a model struct
 function train(system, ace_param, fit_param)
    degree::Int64, order::Int64, r0cut::Float64, rcut::Float64, L_cfg::Dict{Int64, Int64} = ace_param #
@@ -219,14 +227,17 @@ function train(system, ace_param, fit_param)
    IJ, R::Vector{Matrix{Float64}}, Z::Vector{Vector{Int64}}, cell::Vector{Matrix{Float64}} = system # jeg har sjekket de tre linjene at riktig ting pakkes inn og ut på riktig sted
    # I can convert coords -> rel. coords -> configurations using the ingredients below
    envelope::CylindricalBondEnvelope = ACE.CylindricalBondEnvelope(r0cut, rcut, r0cut/2)
-
-   # coords2configs : takes absolute coordinates and (1) makes relative coordinates and (2) output configs 
-   configs = coords2configs([IJ, R], Z, envelope, cell) # rcut kan du få fra BondEnvelope 
+   
+   if req_mem(order, degree, length(IJ)) > avail_mem()
+      error("Required memory is $(req_mem(order, degree, length(IJ)))")
+   end
+      
+   configs = coords2configs(IJ, R, Z, cell, envelope) # rcut kan du få fra BondEnvelope 
    # order is the polynomial order, degree is d_max, and the Dict says how many S, P, D, ... 
    # orbitals that I want. Keys are integers: 0 refer to S orbital, 1 refer to P orbital and so on.
    # The values are an instruction of how many I want of each orbital-symmetry in the basis 
    # basegen is now a function that returns a basis when you give it a pair (L1,L2)
-   basegen = offsite_generator( envelope, order, degree )
+   basegen = offsite_generator( envelope, order, degree ) 
 
    basize = sum(collect(values(L_cfg))) # basis size (in tight binding-sense): Total orbital count
    coef::Matrix{Vector{Float64}} = [ [0.0] for _ in 1:basize, _ in 1:basize] # this will hold coeffs
@@ -237,6 +248,7 @@ function train(system, ace_param, fit_param)
    basis::Array{SymmetricBasis, 2} = Array{SymmetricBasis}(undef, L_count, L_count)
    a::Int64 = 1; A::Int64 = 1
    # these are loops over all L1,L2 and over repeated orbital types
+   u,v = 0,0
    for L1 in L, _ in 1:L_cfg[L1]
       m::Int64 = 0; n::Int64 = 0
       b::Int64 = 1; B::Int64 = 1
@@ -245,22 +257,29 @@ function train(system, ace_param, fit_param)
          m , n = size(ACE.evaluate(basis[a,b], configs[1])[1].val)
          Y = zeros( ComplexF64, length(H)*m*n )
          for (c, block) in enumerate(H)
-            Y[  ( (c-1)*m*n +1 ): ( c*m*n ) ] = reshape(block[A:(A+m-1), B:(B+n-1)], m*n )
+            Y[  ( (c-1)*m*n +1 ): ( c*m*n ) ] = reshape( block[A:(A+m-1), B:(B+n-1)], m*n)
          end
          if norm( real(Y)- Y ) > 1e-8
             error("Y is not real")
          end
          Y = real(Y)
          # this makes a design matrix ( symmetric basis, vector of configs) -> Regular matrix with samples 
-         #                                                                          along axis 1 and basis along axis 2 
-         X = design_matrix(basis[a,b], configs) # make design-matrices by evaluating the basis at the configs
-         coef[a,b] = method(X, Y, lambda)
+         #                                                              along axis 1 and basis along axis 2 
+         X = design_matrix(basis[a,b], configs) # 1 core # make design-matrices by evaluating the basis at the configs
+         u,v = size(X)
+         coef[a,b] = method(X, Y, lambda) #4 core
          fitted[a,b] = X*coef[a,b] # these are the fitted values ...
          residuals[a,b] = Y - fitted[a,b] # ... and the residuals
          b += 1; B += n
       end
       a += 1; A += m
    end
+   vmpeak = readlines(`grep ^VmPeak /proc/$(getpid())/status`)
+   ram = match(r"\d+",vmpeak[1]).match
+   len = length(configs)
+   outpath = abspath(@__DIR__, "../../goofy.files/stats.csv")
+   outfile =  open(outpath,"a")
+   write(outfile, "$order;$degree;$len;$v;$(Int64(u/len));$ram\n");
    return coef, fitted, residuals, basis, configs
 end
 
@@ -271,8 +290,6 @@ end
 function read_item(path::String)
    return Serialization.deserialize(path)
 end
-
-
 
 function predict(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, configs) where T <: Number
 
@@ -301,7 +318,6 @@ function predict(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, confi
 end
 
 
-
 function test_setup(coef::Matrix{Vector{T}}, basis::Array{SymmetricBasis, 2}, method) where T <: Number
    function test_jig( H, configs)
       H = real(H)
@@ -327,8 +343,6 @@ end
 
 
 ############
-
-
 function depricated_test(coef::Matrix{Vector{ComplexF64}}, basis::Array{SymmetricBasis, 2}, 
    configs, H, method, eps::Float64=1e-15)
 Hpredict::Vector{Matrix{ComplexF64}} = predict(coef, basis, configs)

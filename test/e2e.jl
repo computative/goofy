@@ -50,7 +50,7 @@ end
 
 
 env = CylindricalBondEnvelope(rcut, renv, rcut/2)
-test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], env, _unitcell[2])
+test_configs = coords2configs(_IJ[2], _R[2], _Z[2], _unitcell[2], env)
 rmse_jig = test_setup(c, basis, rmse)
 rel_jig = test_setup(c, basis, rel)
 

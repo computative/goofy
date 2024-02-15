@@ -30,8 +30,8 @@ for i in 1:20
     D1, D2 = wigner_D(L1, Q), wigner_D(L2, Q)
 
     # a pair of sets of basis-matrices
-    configs = coords2configs([IJ, R], Z, envelope,  cell)
-    Qconfigs = coords2configs([IJ, [Q * R[i] for i in eachindex(R)]], Z, envelope,  [Q * cell[i] for i in eachindex(R)] )
+    configs = coords2configs(IJ, R, Z, cell, envelope)
+    Qconfigs = coords2configs(IJ, [Q * R[i] for i in eachindex(R)], Z,  [Q * cell[i] for i in eachindex(R)], envelope )
     for (config, Qconfig) in zip(configs,Qconfigs)
         B = ACE.evaluate(basis(L1, L2), config)
         QB = ACE.evaluate(basis(L1, L2), Qconfig)

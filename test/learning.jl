@@ -74,7 +74,7 @@ for len in lens
     
 
     env = CylindricalBondEnvelope(rcut, renv, rcut/2)
-    test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], env, _unitcell[2])
+    test_configs = coords2configs(_IJ[2], _R[2], _Z[2], _unitcell[2], env)
 
     rms_jig = test_setup(c, basis, rms)
     rel_jig = test_setup(c, basis, rel)

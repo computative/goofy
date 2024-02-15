@@ -57,8 +57,8 @@ for len in lens
 
     # testing
     
-    test_configs = coords2configs([_IJ[2], _R[2]], _Z[2], 
-                        CylindricalBondEnvelope(rcut, renv, rcut/2), _unitcell[2])
+    test_configs = coords2configs(_IJ[2], _R[2], _Z[2], _unitcell[2], 
+                                        CylindricalBondEnvelope(rcut, renv, rcut/2))
     
     function rms(X::Vector{Matrix{Float64}}, Y::Vector{Matrix{Float64}}) 
         Z = map( (x,y) -> x .- y, X, Y )
