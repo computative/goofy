@@ -1,6 +1,6 @@
 module goofy
 
-export coords2configs, offsite_generator, design_matrix, train, predict, test_setup, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated, depricated_test, qr_solver, lsqr_solver, inv_solver, write_item, read_item,vmem
+export coords2configs, offsite_generator, design_matrix, train, predict, test_setup, AA, Ylm_complex2real, parse_files, random_idx, parse_files_depricated, depricated_test, qr_solver, lsqr_solver, inv_solver, write_item, read_item,avail_mem,req_mem
 
 using JSON, HDF5, JuLIP, Statistics, Plots, Printf, LinearAlgebra, InteractiveUtils, Random, IterativeSolvers
 using StaticArrays, LowRankApprox, IterativeSolvers, Distributed, DistributedArrays, ACE, Serialization
