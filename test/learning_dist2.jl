@@ -1,4 +1,4 @@
-using goofy, JSON, HDF5, LinearAlgebra, Random, Dates
+using goofy, JSON, HDF5, LinearAlgebra, Random, Dates, Statistics
 using ACE: BondEnvelope, CylindricalBondEnvelope
 
 # learning curves from the terminal
@@ -12,7 +12,8 @@ using ACE: BondEnvelope, CylindricalBondEnvelope
 rcut = parse(Float64, ARGS[1])
 renv = rcut/2; 
 lambda = parse(Float64, ARGS[2])
-order = parse(Int64, ARGS[3]); degree = parse(Int64, ARGS[4])
+order = parse(Int64, ARGS[3]); 
+degree = parse(Int64, ARGS[4])
 lens = parse.(Int, split(chop(ARGS[5]; head=1, tail=1), ','))
 
 
@@ -91,17 +92,20 @@ for len in lens
 
     symm = ["SS","PS","SP","PP"]
     cfg = [configs, test_configs]
+    
+    slices = [ (1,1)  (1,2:4); (2:4,1) (2:4,2:4) ]
 
     for (k, mode) in enumerate(["train", "test"])       
         res_dict = Dict( symm .=> vec(res_jig(_H[k], cfg[k] ) ) )
-        sizes = map(j -> [ abs(_H[k][i][j]) for i in eachindex(_H[k]) ], collect(eachindex(basis)))
+        # i er hver matrise, j er hvert idx i en block
+        sizes = map(j -> [ mean(abs.(_H[k][i][slices[j]...])) for i in eachindex(_H[k]) ], collect(eachindex(basis)))
         size_dict = Dict( symm .=> sizes )
         
         d = Dict(
-            "mode" => mode,
-            "size" => size_dict, 
-            "residuals" => res_dict, 
-            "separation" =>  [norm(first(cfg[k][i]).rr0 ) for i in eachindex(cfg[k]) ]  
+                "mode" => mode,
+                "size" => size_dict, 
+                "residuals" => res_dict, 
+                "separation" =>  [norm(first(cfg[k][i]).rr0 ) for i in eachindex(cfg[k]) ]  
             )
             print("d = ")
             println(JSON.json(merge(settings, d)))
