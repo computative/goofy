@@ -46,11 +46,11 @@ for len in lens
     system = [_IJ[1], _R[1], _Z[1], _unitcell[1]]
     c, fitted, residuals, basis, configs = train(system, ace_param, fit_param)
 
-    label = join(split(split(path, "/")[end-1], "_")[2:end-1], "-")
+    label = join(split(split(path, "/")[end-1], "_")[2:end-1], "-")*"o"*string(order)*"d"*string(degree)
     timestamp   = Dates.format(now(), "dd-mm-yyTHH-MM-SS")
     outpath = abspath(@__DIR__, "../../goofy.files/models/L")
-    write_item((basis,c),outpath * string(len) * "-" *  label * "-" * timestamp * ".mdl")
-    write_item(chosen[1],outpath * string(len) * "-" *  label * "-" * timestamp * ".cho")
+    write_item((basis,c),outpath*string(len)*"-"*label*"-"*timestamp*".mdl")
+    write_item(chosen[1],outpath*string(len)*"-"*label*"-"*timestamp*".cho")
 
     #retucer takes in vector of blocks where the statistic has been applied
     

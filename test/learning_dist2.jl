@@ -50,11 +50,11 @@ for len in lens
 
     c, _, _, basis, configs = train(system, ace_param, fit_param)
     
-    label = join(split(split(path, "/")[end-1], "_")[2:end-1], "-")
+    label = join(split(split(path, "/")[end-1], "_")[2:end-1], "-")*"o"*string(order)*"d"*string(degree)
     timestamp   = Dates.format(now(), "dd-mm-yyTHH-MM-SS")
     outpath = abspath(@__DIR__, "../../goofy.files/models/L")
-    write_item((basis,c),outpath * string(len) * "-" *  label * "-" * timestamp * ".mdl")
-    write_item(chosen[1],outpath * string(len) * "-" *  label * "-" * timestamp * ".cho")
+    write_item((basis,c),outpath*string(len)*"-"*label*"-"*timestamp*".mdl")
+    write_item(chosen[1],outpath*string(len)*"-"*label*"-"*timestamp*".cho")
 
     # testing
     
@@ -95,6 +95,8 @@ for len in lens
     
     slices = [ (1,1)  (1,2:4); (2:4,1) (2:4,2:4) ]
 
+    outfile =  open(outpath*string(len)*"-"*label*"-"*timestamp*".json","w")
+
     for (k, mode) in enumerate(["train", "test"])       
         res_dict = Dict( symm .=> vec(res_jig(_H[k], cfg[k] ) ) )
         # i er hver matrise, j er hvert idx i en block
@@ -102,17 +104,16 @@ for len in lens
         size_dict = Dict( symm .=> sizes )
         
         d = Dict(
-                "mode" => mode,
-                "size" => size_dict, 
-                "residuals" => res_dict, 
-                "separation" =>  [norm(first(cfg[k][i]).rr0 ) for i in eachindex(cfg[k]) ]  
-            )
-            print("d = ")
-            println(JSON.json(merge(settings, d)))
-            
+            "mode" => mode,
+            "size" => size_dict, 
+            "residuals" => res_dict, 
+            "separation" =>  [norm(first(cfg[k][i]).rr0 ) for i in eachindex(cfg[k]) ]
+        )
+        print("d = ")
+        println(JSON.json(merge(settings, d)))
+
+        write(outfile, "d = "*JSON.json(merge(settings, d)) * "\n" )
     end
-
-
 end
 
 
